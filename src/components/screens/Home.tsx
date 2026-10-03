@@ -29,7 +29,7 @@ export function HomeScreen() {
       <div className="scrim-bottom" />
       <div className="home-top">
         <div className="brand">
-          <img src="/favicon.svg" alt="" />
+          <img src="/favicon-updated.png" alt="PublicPort" />
           <b>PublicPort</b>
         </div>
         <div className="home-actions">

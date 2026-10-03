@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon-180x180.png'],
+      includeAssets: ['favicon-updated.png', 'favicon.ico', 'apple-touch-icon-180x180.png'],
       manifest: {
         name: 'PublicPort — Transit Driver',
         short_name: 'PublicPort',

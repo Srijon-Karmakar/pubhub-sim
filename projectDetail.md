@@ -10,7 +10,7 @@ npm run dev        # http://localhost:5173 (also exposed on your LAN, open it on
 npm run build      # production build + service worker in dist/
 npm run preview    # serve the production build
 npm run test:sim   # headless regression: parser + engine drive the Kolkata Blue Line end to end
-npm run icons      # regenerate PWA icons from public/favicon.svg
+npm run icons      # regenerate PWA icons from public/favicon-updated.png
 ```
 
 ## Gameplay

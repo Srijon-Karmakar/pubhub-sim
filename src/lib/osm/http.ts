@@ -45,7 +45,7 @@ const isLocal = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\]|19
  */
 const OVERPASS = isLocal ? DIRECT : [PROXY, ...DIRECT.filter((u) => !u.includes('overpass-api.de'))];
 
-let preferred = 0;
+let order = OVERPASS.slice();
 
 export interface OverpassResult<E = OverpassElement> {
   elements: E[];
@@ -72,55 +72,86 @@ export interface OverpassMember {
   geometry?: ({ lat: number; lon: number } | null)[];
 }
 
-/**
- * Runs an Overpass QL query, rotating through public mirrors when one is
- * overloaded. `onAttempt` lets the UI show which server is being asked.
- */
-export async function overpass(
-  query: string,
-  opts: { timeoutMs?: number; signal?: AbortSignal; onAttempt?: (host: string, n: number) => void } = {},
-): Promise<OverpassResult> {
-  let lastErr: unknown = null;
-  let attempt = 0;
-  for (let n = 0; n < OVERPASS.length; n++) {
-    const idx = (preferred + n) % OVERPASS.length;
-    const url = OVERPASS[idx];
-    const proxy = url === PROXY;
-    // "busy" answers (429/504) usually clear within seconds, and overpass-api.de
-    // is far faster than the mirrors, so retry it briefly first (the proxy
-    // already retries server-side)
-    const retries = n === 0 && !proxy ? 2 : 0;
-    for (let r = 0; r <= retries; r++) {
-      opts.onAttempt?.(proxy ? 'overpass-api.de' : new URL(url).host, attempt++);
-      try {
-        // the proxy uses GET so Vercel's CDN can cache each city's answer
-        const res = proxy
-          ? await fetchJson<OverpassResult>(`${PROXY}?data=${encodeURIComponent(query)}`, { signal: opts.signal }, Math.max(opts.timeoutMs ?? 0, 62000))
-          : await fetchJson<OverpassResult>(
-              url,
-              {
-                method: 'POST',
-                body: 'data=' + encodeURIComponent(query),
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                signal: opts.signal,
-              },
-              opts.timeoutMs ?? 90000,
-            );
-        if (!Array.isArray(res?.elements)) throw new NetError('Unexpected response', 502);
-        if (res.remark && /runtime error|timed out|out of memory/i.test(res.remark) && res.elements.length === 0) {
-          throw new NetError(res.remark, 504);
-        }
-        preferred = idx;
-        return res;
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') throw e;
-        lastErr = e;
-        const busy = e instanceof NetError && (e.status === 429 || e.status === 504);
-        if (!busy || r === retries) break;
-        await new Promise((ok) => setTimeout(ok, 1500 * (r + 1)));
-        if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      }
-    }
+async function queryOne(url: string, query: string, signal: AbortSignal, timeoutMs: number): Promise<OverpassResult> {
+  // the proxy uses GET so Vercel's CDN can cache each answer
+  const res =
+    url === PROXY
+      ? await fetchJson<OverpassResult>(`${PROXY}?data=${encodeURIComponent(query)}`, { signal }, Math.max(timeoutMs, 62000))
+      : await fetchJson<OverpassResult>(
+          url,
+          {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(query),
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            signal,
+          },
+          timeoutMs,
+        );
+  if (!Array.isArray(res?.elements)) throw new NetError('Unexpected response', 502);
+  if (res.remark && /runtime error|timed out|out of memory/i.test(res.remark) && res.elements.length === 0) {
+    throw new NetError(res.remark, 504);
   }
-  throw lastErr instanceof Error ? lastErr : new NetError('All Overpass servers failed');
+  return res;
+}
+
+/**
+ * Runs an Overpass QL query against several public servers as a staggered
+ * race: the next server starts if the current one hasn't answered within
+ * `staggerMs` (or as soon as it fails), and the first good answer wins.
+ * `onAttempt` lets the UI show which server is being asked.
+ */
+export function overpass(
+  query: string,
+  opts: { timeoutMs?: number; signal?: AbortSignal; staggerMs?: number; onAttempt?: (host: string, n: number) => void } = {},
+): Promise<OverpassResult> {
+  const eps = order.slice();
+  const stagger = opts.staggerMs ?? 5000;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let started = 0;
+    let failed = 0;
+    let lastErr: unknown = null;
+    const ctrls: AbortController[] = [];
+    const timers: number[] = [];
+    const done = () => {
+      settled = true;
+      timers.forEach(clearTimeout);
+      ctrls.forEach((c) => c.abort());
+      opts.signal?.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      if (settled) return;
+      done();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const launch = () => {
+      if (settled || started >= eps.length) return;
+      const url = eps[started];
+      const n = started++;
+      const ctrl = new AbortController();
+      ctrls.push(ctrl);
+      opts.onAttempt?.(url === PROXY ? 'overpass-api.de' : new URL(url).host, n);
+      queryOne(url, query, ctrl.signal, opts.timeoutMs ?? 60000).then(
+        (res) => {
+          if (settled) return;
+          done();
+          // remember the winner for next time
+          order = [url, ...order.filter((u) => u !== url)];
+          resolve(res);
+        },
+        (e) => {
+          if (settled) return;
+          lastErr = e;
+          failed++;
+          if (failed >= eps.length) {
+            done();
+            reject(lastErr instanceof Error ? lastErr : new NetError('All Overpass servers failed'));
+          } else launch();
+        },
+      );
+    };
+    opts.signal?.addEventListener('abort', onAbort);
+    launch();
+    for (let i = 1; i < eps.length; i++) timers.push(window.setTimeout(launch, stagger * i));
+  });
 }

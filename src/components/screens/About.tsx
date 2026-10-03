@@ -39,7 +39,7 @@ export function AboutScreen() {
           transition={{ type: 'spring', stiffness: 260, damping: 26 }}
         >
           <div className="about-mark">
-            <img src="/favicon.svg" alt="" />
+            <img src="/favicon-updated.png" alt="PublicPort" />
           </div>
           <div className="eyebrow">About this game</div>
           <h1>PublicPort</h1>

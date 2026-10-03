@@ -14,7 +14,7 @@ import { setApp, useApp, type Screen } from '../store/app';
 import { useHud } from '../store/hud';
 import { useProgress } from '../store/progress';
 import { useSettings } from '../store/settings';
-import { applyEnv } from './env';
+import { applyEnv, landingEnv } from './env';
 import { runner } from './runner';
 
 let cityAbort: AbortController | null = null;
@@ -83,7 +83,7 @@ export function homeEnv() {
   const recent = useProgress.getState().recentCities[0];
   homeCity ??= recent ?? popularToCity(POPULAR[Math.floor(Math.random() * POPULAR.length)]);
   const c = homeCity;
-  applyEnv(Date.now(), c.lat, c.lon, 'clear');
+  landingEnv();
   return c;
 }
 
@@ -95,6 +95,7 @@ export function goHome() {
   mapCtl.clearRoute();
   const c = useApp.getState().city ?? homeEnv();
   setApp({ screen: 'home', line: null, route: null, routeState: 'idle' });
+  landingEnv();
   mapCtl.setInteractive(false);
   mapCtl.setLabels('minimal');
   mapCtl.startOrbit(c.lat, c.lon, { zoom: 15.2, pitch: 60, speed: 2.4 });

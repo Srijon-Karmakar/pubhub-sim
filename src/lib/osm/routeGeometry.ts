@@ -204,6 +204,43 @@ interface Candidate extends LL {
   plat?: LL;
 }
 
+interface OsmApiElement {
+  type: 'node' | 'way' | 'relation';
+  id: number;
+  lat?: number;
+  lon?: number;
+  nodes?: number[];
+  members?: { type: 'node' | 'way' | 'relation'; ref: number; role: string }[];
+  tags?: Record<string, string>;
+}
+
+/**
+ * One route relation with all its member ways and nodes, from the main
+ * OpenStreetMap API (~1 s, very reliable), reshaped into the Overpass
+ * "out geom" form the parser expects.
+ */
+async function fetchFromOsmApi(id: number, signal?: AbortSignal): Promise<OverpassElement[]> {
+  const res = await fetchJson<{ elements: OsmApiElement[] }>(`https://api.openstreetmap.org/api/0.6/relation/${id}/full.json`, { signal }, 15000);
+  const nodes = new Map<number, LL>();
+  const ways = new Map<number, number[]>();
+  let rel: OsmApiElement | undefined;
+  for (const el of res.elements) {
+    if (el.type === 'node' && el.lat != null && el.lon != null) nodes.set(el.id, { lat: el.lat, lon: el.lon });
+    else if (el.type === 'way' && el.nodes) ways.set(el.id, el.nodes);
+    else if (el.type === 'relation' && el.id === id) rel = el;
+  }
+  if (!rel?.members) throw new Error('Route not found');
+  const members: OverpassMember[] = rel.members.map((m) => {
+    if (m.type === 'node') return { ...m, ...nodes.get(m.ref) };
+    if (m.type === 'way') return { ...m, geometry: (ways.get(m.ref) ?? []).map((n) => nodes.get(n) ?? null) };
+    return m;
+  });
+  return [
+    { type: 'relation', id, tags: rel.tags, members },
+    ...res.elements.filter((e) => e.type !== 'relation' && e.tags).map((e) => ({ type: e.type, id: e.id, tags: e.tags })),
+  ];
+}
+
 export async function fetchRoute(
   ref: RouteRef,
   line: Line,
@@ -215,13 +252,21 @@ export async function fetchRoute(
   const cached = await cacheGet<RouteData>(key, 30 * DAY);
   if (cached) return { ...cached, colour: line.colour, textColour: line.textColour, driveSide };
 
-  const q = `[out:json][timeout:90];
+  let elements: OverpassElement[];
+  try {
+    onAttempt?.('openstreetmap.org');
+    elements = await fetchFromOsmApi(ref.id, signal);
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e;
+    // fall back to Overpass
+    const q = `[out:json][timeout:90];
 rel(${ref.id})->.r;
 .r out geom;
 (node(r.r);way(r.r););
 out tags;`;
-  const res = await overpass(q, { timeoutMs: 35000, signal, onAttempt: (h) => onAttempt?.(h) });
-  const data = await parseRoute(res.elements, ref, line, driveSide);
+    elements = (await overpass(q, { timeoutMs: 35000, staggerMs: 4000, signal, onAttempt: (h) => onAttempt?.(h) })).elements;
+  }
+  const data = await parseRoute(elements, ref, line, driveSide);
   await cacheSet(key, data);
   return data;
 }
