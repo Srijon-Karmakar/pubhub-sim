@@ -47,12 +47,14 @@ while (!e.finished && e.t < 4 * 3600) {
   } else if (h.canOpen && (Math.abs(d) < 0.8 || d < 0)) {
     e.toggleDoors();
     e.setNotch(-p.brakeNotches);
-  } else if (e.v === 0 && d > 0.5 && d < 40) {
+  } else if (e.v === 0 && d > 0.5 && d < 40 && h.nextSignal?.state !== 'red') {
     e.setNotch(1);
   } else {
     let vt = h.limit - 1.2;
     if (h.nextLimit) vt = Math.min(vt, Math.sqrt(h.nextLimit.v ** 2 + 2 * 0.55 * p.brake * Math.max(0, h.nextLimit.dist - 25)));
     vt = Math.min(vt, Math.sqrt(2 * 0.55 * p.brake * Math.max(0, d - 1.5)), d < 4 ? 0.8 : 99);
+    // red signal ahead: treat it as a stopping point
+    if (h.nextSignal?.state === 'red') vt = Math.min(vt, h.nextSignal.dist < 25 ? 0 : Math.sqrt(2 * 0.55 * p.brake * Math.max(0, h.nextSignal.dist - 25)));
     const err = vt - e.v;
     if (err > 1) e.setNotch(p.powerNotches);
     else if (err > 0.2) e.setNotch(1);
@@ -64,6 +66,7 @@ while (!e.finished && e.t < 4 * 3600) {
 
 const missed = e.ratings.filter((r) => r.grade === 'missed').length;
 console.log(`finished=${e.finished} time=${Math.round(e.t)}s (timetable ${e.tt.arr[e.tt.arr.length - 1]}s) score=${Math.round(e.score)}/${e.maxScore}`);
+console.log(`signals=${e.signals.length} red=${e.signals.filter((g) => g.red).length} bestStreak=${e.bestStreak}`);
 console.log(`comfort=${Math.round(e.avgComfort)} pax=${e.paxDelivered} atp=${e.atpCount} overspeed=${e.overspeedT.toFixed(1)}s missed=${missed}`);
 console.log('breakdown:', [...e.breakdown.entries()].map(([k, v]) => `${k} ${Math.round(v)}`).join(', '));
 

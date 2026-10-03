@@ -460,6 +460,10 @@ class AudioEngine {
         this.noiseBurst(0.6, 220, 'lowpass', 0.6);
         this.tone(55, 0.6, { gain: 0.35, attack: 0.002 });
         break;
+      case 'signal':
+        this.tone(988, 0.16, { type: 'triangle', gain: 0.08 });
+        this.tone(1319, 0.28, { type: 'triangle', gain: 0.08, at: t + 0.12 });
+        break;
       case 'ui':
         this.tone(1320, 0.06, { gain: 0.03 });
         break;

@@ -85,6 +85,8 @@ export interface RouteData {
   ways: WaySpan[];
   /** geometry was reconstructed (no way members) */
   approx?: boolean;
+  /** stops were not mapped, halts were spaced evenly along the route */
+  synthStops?: boolean;
   driveSide: -1 | 1;
   bounds: [number, number, number, number];
   fetchedAt: number;
@@ -109,6 +111,7 @@ export interface RunConfig {
   endIdx: number;
   time: TimeChoice;
   weather: WeatherChoice;
+  free: boolean;
 }
 
 export interface StopRating {
@@ -141,4 +144,7 @@ export interface RunResult {
   breakdown: { label: string; points: number }[];
   date: number;
   best: boolean;
+  free?: boolean;
+  maxSpeed?: number;
+  bestStreak?: number;
 }

@@ -27,12 +27,23 @@ export async function fetchJson<T>(url: string, init: RequestInit = {}, timeoutM
   }
 }
 
-const OVERPASS = [
+const PROXY = '/api/overpass';
+const DIRECT = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
+
+const isLocal = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\]|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
+
+/**
+ * overpass-api.de refuses browser requests from free-hosting domains
+ * (*.vercel.app, *.netlify.app, …), so deployed builds go through our own
+ * serverless proxy (api/overpass.ts) first, then straight to the mirrors that
+ * allow it. On localhost the browser can talk to every server directly.
+ */
+const OVERPASS = isLocal ? DIRECT : [PROXY, ...DIRECT.filter((u) => !u.includes('overpass-api.de'))];
 
 let preferred = 0;
 
@@ -74,22 +85,28 @@ export async function overpass(
   for (let n = 0; n < OVERPASS.length; n++) {
     const idx = (preferred + n) % OVERPASS.length;
     const url = OVERPASS[idx];
-    // "busy" answers (429/504) usually clear within seconds, and the primary
-    // server is far faster than the mirrors, so retry it briefly first
-    const retries = n === 0 ? 2 : 0;
+    const proxy = url === PROXY;
+    // "busy" answers (429/504) usually clear within seconds, and overpass-api.de
+    // is far faster than the mirrors, so retry it briefly first (the proxy
+    // already retries server-side)
+    const retries = n === 0 && !proxy ? 2 : 0;
     for (let r = 0; r <= retries; r++) {
-      opts.onAttempt?.(new URL(url).host, attempt++);
+      opts.onAttempt?.(proxy ? 'overpass-api.de' : new URL(url).host, attempt++);
       try {
-        const res = await fetchJson<OverpassResult>(
-          url,
-          {
-            method: 'POST',
-            body: 'data=' + encodeURIComponent(query),
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            signal: opts.signal,
-          },
-          opts.timeoutMs ?? 90000,
-        );
+        // the proxy uses GET so Vercel's CDN can cache each city's answer
+        const res = proxy
+          ? await fetchJson<OverpassResult>(`${PROXY}?data=${encodeURIComponent(query)}`, { signal: opts.signal }, Math.max(opts.timeoutMs ?? 0, 62000))
+          : await fetchJson<OverpassResult>(
+              url,
+              {
+                method: 'POST',
+                body: 'data=' + encodeURIComponent(query),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                signal: opts.signal,
+              },
+              opts.timeoutMs ?? 90000,
+            );
+        if (!Array.isArray(res?.elements)) throw new NetError('Unexpected response', 502);
         if (res.remark && /runtime error|timed out|out of memory/i.test(res.remark) && res.elements.length === 0) {
           throw new NetError(res.remark, 504);
         }

@@ -8,13 +8,13 @@ export function Speedo({ speed, limit, vmax, accel, overspeed, units }: { speed:
   const scale = Math.ceil((vmax * 1.12 * 3.6) / 20) * 20 / 3.6;
   const f = Math.min(1, speed / scale);
   const lf = Math.min(1, limit / scale);
-  const near = speed > limit - 0.6;
+  const near = limit > 0 && speed > limit - 0.6;
   const col = overspeed ? 'var(--bad)' : near ? 'var(--warn)' : 'var(--accent)';
   const accTxt = Math.abs(accel) < 0.05 ? 'COAST' : `${accel > 0 ? '▲' : '▼'} ${Math.abs(accel).toFixed(1)}`;
   return (
     <div className="speedo glass">
       <svg viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r={R} fill="none" stroke="var(--stroke-2)" strokeWidth="8" strokeLinecap="round" strokeDasharray={`${ARC} ${CIRC}`} />
+        <circle cx="60" cy="60" r={R} fill="none" stroke="var(--stroke-2)" strokeWidth="8" strokeLinecap="butt" strokeDasharray={`${ARC} ${CIRC}`} />
         <circle
           cx="60"
           cy="60"
@@ -22,11 +22,12 @@ export function Speedo({ speed, limit, vmax, accel, overspeed, units }: { speed:
           fill="none"
           stroke={col}
           strokeWidth="8"
-          strokeLinecap="round"
+          strokeLinecap="butt"
           strokeDasharray={`${Math.max(0.001, ARC * f)} ${CIRC}`}
           style={{ transition: 'stroke-dasharray .12s linear, stroke .2s' }}
         />
-        {/* limit tick */}
+        {/* limit tick (none in free drive) */}
+        {limit > 0 && (
         <circle
           cx="60"
           cy="60"
@@ -38,6 +39,7 @@ export function Speedo({ speed, limit, vmax, accel, overspeed, units }: { speed:
           strokeDashoffset={-(ARC * lf - 1.1)}
           style={{ transition: 'stroke-dashoffset .4s' }}
         />
+        )}
       </svg>
       <div className="v">
         <b className="num" style={{ color: overspeed ? 'var(--bad)' : undefined }}>
@@ -45,7 +47,7 @@ export function Speedo({ speed, limit, vmax, accel, overspeed, units }: { speed:
         </b>
         <small>{speedUnit(units)}</small>
       </div>
-      <div className="acc num" style={{ color: accel > 0.05 ? '#22d3ee' : accel < -0.05 ? 'var(--warn)' : 'var(--text-3)' }}>
+      <div className="acc num" style={{ color: accel > 0.05 ? 'var(--accent)' : accel < -0.05 ? 'var(--warn)' : 'var(--text-3)' }}>
         {accTxt}
       </div>
     </div>

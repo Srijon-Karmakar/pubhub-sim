@@ -364,6 +364,24 @@ export async function parseRoute(
     stops.push({ id: c.id, name: c.name ?? '', lat: c.lat, lon: c.lon, s: pr.s, side });
     prevS = pr.s;
   }
+  // Many routes (especially buses) are mapped as a path without stops: space
+  // halts evenly along the line so they can still be driven.
+  let synthStops = false;
+  if (stops.length < 2 && path.length > 600) {
+    synthStops = true;
+    const road = ref.mode === 'bus' || ref.mode === 'trolleybus';
+    const spacing = road ? 650 : ref.mode === 'tram' || ref.mode === 'light_rail' ? 600 : ref.mode === 'ferry' ? 2500 : 1300;
+    const n = Math.max(2, Math.min(30, Math.round(path.length / spacing) + 1));
+    const s0 = Math.min(30, path.length * 0.02);
+    const s1 = path.length - Math.min(30, path.length * 0.02);
+    stops.length = 0;
+    for (let i = 0; i < n; i++) {
+      const sAt = s0 + ((s1 - s0) * i) / (n - 1);
+      const [la, lo] = path.pointAt(sAt);
+      const name = i === 0 ? (ref.from ?? 'Start') : i === n - 1 ? (ref.to ?? 'Terminus') : `Halt ${i}`;
+      stops.push({ id: `synth${i}`, name, lat: la, lon: lo, s: sAt, side: driveSide });
+    }
+  }
   stops.forEach((s, i) => {
     if (!s.name) s.name = `Stop ${i + 1}`;
   });
@@ -396,6 +414,7 @@ export async function parseRoute(
     stops,
     ways,
     approx,
+    synthStops,
     driveSide,
     bounds: [w, s, e, n],
     fetchedAt: Date.now(),

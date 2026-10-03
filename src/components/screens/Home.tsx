@@ -1,9 +1,9 @@
-import { LocateFixed, Search, Settings } from 'lucide-react';
+import { Info, LocateFixed, Search, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 import { compact } from '../../lib/format';
 import { POPULAR, popularToCity } from '../../lib/osm/search';
 import { Flag } from '../Flag';
-import { openCity } from '../../game/actions';
+import { openAbout, openCity } from '../../game/actions';
 import { setApp } from '../../store/app';
 import { useProgress } from '../../store/progress';
 import { useSettings } from '../../store/settings';
@@ -32,9 +32,14 @@ export function HomeScreen() {
           <img src="/favicon.svg" alt="" />
           <b>PublicPort</b>
         </div>
-        <button className="icon-btn glass" aria-label="Settings" onClick={() => setApp({ settingsOpen: true })}>
-          <Settings size={20} />
-        </button>
+        <div className="home-actions">
+          <button className="icon-btn glass" aria-label="About PublicPort" onClick={openAbout}>
+            <Info size={20} />
+          </button>
+          <button className="icon-btn glass" aria-label="Settings" onClick={() => setApp({ settingsOpen: true })}>
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
 
       <motion.div className="home-body" variants={container} initial="hidden" animate="show">

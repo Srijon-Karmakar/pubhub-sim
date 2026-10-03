@@ -11,7 +11,7 @@ import { runner } from '../../game/runner';
 import { useApp } from '../../store/app';
 import { useHud } from '../../store/hud';
 import { useSettings } from '../../store/settings';
-import { ApproachGauge, BoardingCard, Coach, NextCard, Toasts } from '../hud/Panels';
+import { ApproachGauge, BoardingCard, Coach, NextCard, SignalLamp, StreakPill, Toasts } from '../hud/Panels';
 import { Lever } from '../hud/Lever';
 import { LimitSign, Speedo } from '../hud/Speedo';
 import { WeatherIcon } from '../WeatherIcon';
@@ -81,7 +81,7 @@ export function DriveScreen() {
       <WeatherOverlay kind={engine.weather} hidden={snap.inTunnel} />
 
       <div className="hud-top">
-        <NextCard snap={snap} lineRef={line.ref} colour={colour} textColour={engine.route.textColour} units={units} mode={engine.route.mode} />
+        <NextCard free={engine.free} snap={snap} lineRef={line.ref} colour={colour} textColour={engine.route.textColour} units={units} mode={engine.route.mode} />
         <div className="side-col">
           <button className="icon-btn glass" aria-label="Pause" onClick={() => runner.pause(true)}>
             <Pause size={20} fill="currentColor" />
@@ -90,10 +90,18 @@ export function DriveScreen() {
             <WeatherIcon kind={engine.weather} size={15} night={night} />
             {formatClock(snap.clockUtc, off)}
           </div>
-          <div className="score-pill glass">
-            <small>SCORE</small>
-            <b className="num">{Math.max(0, Math.round(snap.score)).toLocaleString()}</b>
-          </div>
+          {!engine.free && <StreakPill streak={snap.streak} mult={snap.mult} />}
+          {engine.free ? (
+            <div className="score-pill glass free">
+              <small>MODE</small>
+              <b>FREE</b>
+            </div>
+          ) : (
+            <div className="score-pill glass">
+              <small>SCORE</small>
+              <b className="num">{Math.max(0, Math.round(snap.score)).toLocaleString()}</b>
+            </div>
+          )}
         </div>
       </div>
 
@@ -113,7 +121,7 @@ export function DriveScreen() {
 
       <AnimatePresence>
         {showApproach && !freeCam && <ApproachGauge key="ap" snap={snap} p={p} units={units} assists={settings.assists} />}
-        {showBoard && !freeCam && <BoardingCard key="bd" snap={snap} autoDoors={settings.autoDoors} />}
+        {showBoard && !freeCam && <BoardingCard key="bd" snap={snap} autoDoors={settings.autoDoors} free={engine.free} />}
         {freeCam && (
           <motion.button
             key="rc"
@@ -172,8 +180,11 @@ export function DriveScreen() {
       </div>
 
       <div className="speedo-wrap">
-        <Speedo speed={snap.speed} limit={snap.limit} vmax={p.vmax} accel={snap.accel} overspeed={snap.overspeed} units={units} />
-        <LimitSign limit={snap.limit} next={snap.nextLimit} overspeed={snap.overspeed} units={units} />
+        <Speedo speed={snap.speed} limit={engine.free ? 0 : snap.limit} vmax={engine.free ? 450 / 3.6 : p.vmax} accel={snap.accel} overspeed={snap.overspeed} units={units} />
+        <div className="limit-stack">
+          <AnimatePresence>{!engine.free && snap.nextSignal && <SignalLamp key="sig" sig={snap.nextSignal} units={units} rail={p.rail} />}</AnimatePresence>
+          {engine.free ? <div className="no-limit-sign" aria-label="No speed limit" /> : <LimitSign limit={snap.limit} next={snap.nextLimit} overspeed={snap.overspeed} units={units} />}
+        </div>
       </div>
 
       <Lever notch={snap.notch} maxP={p.powerNotches} maxB={p.brakeNotches} />

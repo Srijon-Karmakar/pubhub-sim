@@ -1,7 +1,7 @@
 import { ArrowLeftRight, List, RotateCcw, Share2, Trophy } from 'lucide-react';
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import { useEffect, useState, type CSSProperties } from 'react';
-import { distance, duration } from '../../lib/format';
+import { distance, duration, speedUnit, speedValue } from '../../lib/format';
 import { closeRoute, restartRun, reverseRun } from '../../game/actions';
 import { runner } from '../../game/runner';
 import { mapCtl } from '../../map/mapController';
@@ -9,7 +9,7 @@ import { setApp, useApp } from '../../store/app';
 import { useSettings } from '../../store/settings';
 import { LineBadge } from '../ui/primitives';
 
-const GRADE_COL: Record<string, string> = { perfect: '#a78bfa', great: '#22d3ee', good: '#10b981', ok: '#94a3b8', missed: '#ef4444' };
+const GRADE_COL: Record<string, string> = { perfect: '#a78bfa', great: '#c3ff00', good: '#10b981', ok: '#94a3b8', missed: '#ef4444' };
 
 function rank(stars: number, ratio: number) {
   if (stars === 3 && ratio > 0.92) return 'Legendary driver';
@@ -99,13 +99,26 @@ export function ResultsScreen() {
               {r.lineName} · {r.cityName}
             </span>
           </div>
-          <div className="stars">
-            {[0, 1, 2].map((i) => (
-              <Star key={i} on={i < r.stars} delay={0.5 + i * 0.18} />
-            ))}
-          </div>
-          <div className="res-score num">{txt}</div>
-          <div className="res-rank">{rank(r.stars, ratio)}</div>
+          {r.free ? (
+            <>
+              <div className="free-tag">Free drive</div>
+              <div className="res-score num">
+                {Math.round(speedValue(r.maxSpeed ?? 0, units))}
+                <span className="res-unit"> {speedUnit(units)}</span>
+              </div>
+              <div className="res-rank">Top speed · no limits, no score</div>
+            </>
+          ) : (
+            <>
+              <div className="stars">
+                {[0, 1, 2].map((i) => (
+                  <Star key={i} on={i < r.stars} delay={0.5 + i * 0.18} />
+                ))}
+              </div>
+              <div className="res-score num">{txt}</div>
+              <div className="res-rank">{rank(r.stars, ratio)}</div>
+            </>
+          )}
           {r.best && (
             <motion.div className="best-badge" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 1.9, type: 'spring', stiffness: 400, damping: 15 }}>
               <Trophy size={14} /> New personal best
@@ -126,15 +139,22 @@ export function ResultsScreen() {
             <small>Comfort</small>
             <b className="num">{Math.round(r.comfort)}%</b>
           </div>
+          {r.free ? (
+            <div className="stat">
+              <small>Top speed</small>
+              <b className="num">{Math.round(speedValue(r.maxSpeed ?? 0, units))}</b>
+            </div>
+          ) : (
+            <div className="stat">
+              <small>On time</small>
+              <b className="num">
+                {r.onTime}/{r.stops.length + 1}
+              </b>
+            </div>
+          )}
           <div className="stat">
-            <small>On time</small>
-            <b className="num">
-              {r.onTime}/{r.stops.length + 1}
-            </b>
-          </div>
-          <div className="stat">
-            <small>Perfect</small>
-            <b className="num">{r.perfect}</b>
+            <small>{r.free ? 'Perfect' : 'Best streak'}</small>
+            <b className="num">{r.free ? r.perfect : `${r.bestStreak ?? 0}×`}</b>
           </div>
           <div className="stat">
             <small>Riders</small>
@@ -159,10 +179,12 @@ export function ResultsScreen() {
           </>
         )}
 
-        <div className="section-title">
-          <span className="eyebrow">Score breakdown</span>
-        </div>
-        {r.breakdown.map((b) => (
+        {!r.free && (
+          <div className="section-title">
+            <span className="eyebrow">Score breakdown</span>
+          </div>
+        )}
+        {!r.free && r.breakdown.map((b) => (
           <div className="bd-row" key={b.label}>
             <span>{b.label}</span>
             <b className={b.points >= 0 ? 'pos' : 'neg'}>

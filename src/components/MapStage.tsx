@@ -10,6 +10,7 @@ export function MapStage() {
     const c = homeEnv();
     mapCtl.init(ref.current, c.lat, c.lon);
     mapCtl.setInteractive(false);
+    mapCtl.setLabels('minimal');
     if (useSettings.getState().quality === 'low') mapCtl.setQuality('low');
     void mapCtl.ready.then(() => {
       homeEnv();

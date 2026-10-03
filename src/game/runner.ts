@@ -29,6 +29,7 @@ class Runner {
   private wake: { release: () => Promise<void> } | null = null;
   private finishTimer = 0;
   private tunnelBlend = 0;
+  private stationBlend = 0;
   private introTimer = 0;
 
   start(engine: Engine, ctx: RunCtx) {
@@ -161,7 +162,13 @@ class Runner {
     const inTunnel = e.track.inTunnel(e.s - e.length * 0.3);
     this.tunnelBlend += ((inTunnel ? 1 : 0) - this.tunnelBlend) * Math.min(1, dt * 3);
     mapCtl.scene.xray = this.tunnelBlend > 0.5;
-    mapCtl.setBuildingOpacity(Math.round((0.94 - this.tunnelBlend * 0.62) * 20) / 20);
+    // OSM often maps stations as halls over the tracks: fade buildings around platforms
+    const toStop = Math.abs(e.tt.targets[e.k] - e.s);
+    const fromLast = e.k > 0 ? Math.abs(e.s - e.tt.targets[e.k - 1]) : Infinity;
+    const nearStation = Math.min(toStop, fromLast) < e.length + 120;
+    this.stationBlend += ((nearStation ? 1 : 0) - this.stationBlend) * Math.min(1, dt * 2);
+    const fade = Math.max(this.tunnelBlend * 0.62, this.stationBlend * 0.42);
+    mapCtl.setBuildingOpacity(Math.round((0.94 - fade) * 20) / 20);
     mapCtl.repaint();
 
     // audio
@@ -262,8 +269,12 @@ class Runner {
       breakdown: [...e.breakdown.entries()].map(([label, points]) => ({ label, points: Math.round(points) })).filter((b) => b.points !== 0),
       date: Date.now(),
       best: false,
+      free: e.free,
+      maxSpeed: e.maxSpeed,
+      bestStreak: e.bestStreak,
     };
-    result.best = useProgress.getState().addRun(result);
+    // free drives don't count towards scores or bests
+    if (!e.free) result.best = useProgress.getState().addRun(result);
     if (!useSettings.getState().tutorialDone) useSettings.getState().set({ tutorialDone: true });
     setApp({ result, screen: 'results' });
     audio.idle();

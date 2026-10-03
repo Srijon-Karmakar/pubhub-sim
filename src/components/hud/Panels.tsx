@@ -10,6 +10,34 @@ import { useHud } from '../../store/hud';
 import { useSettings } from '../../store/settings';
 import { LineBadge } from '../ui/primitives';
 
+export function SignalLamp({ sig, units, rail }: { sig: HudSnapshot['nextSignal']; units: Units; rail: boolean }) {
+  if (!sig) return null;
+  const red = sig.state === 'red';
+  return (
+    <motion.div className={`signal-lamp ${red ? 'red' : 'green'}`} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
+      <span className="head">
+        <i className={red ? 'on' : ''} />
+        {!rail && <i className="amber" />}
+        <i className={red ? '' : 'on'} />
+      </span>
+      <span className="txt num">
+        <b>{red ? (rail ? 'STOP' : 'RED') : 'CLEAR'}</b>
+        <small>{shortDistance(Math.max(0, sig.dist), units)}</small>
+      </span>
+    </motion.div>
+  );
+}
+
+export function StreakPill({ streak, mult }: { streak: number; mult: number }) {
+  if (streak < 1) return null;
+  return (
+    <motion.div key={streak} className="streak-pill" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 500, damping: 18 }}>
+      <small>STREAK {streak}</small>
+      <b className="num">×{mult.toFixed(2).replace(/0$/, '')}</b>
+    </motion.div>
+  );
+}
+
 export function deltaClass(d: number) {
   if (d > 60) return 'vlate';
   if (d > 15) return 'late';
@@ -17,7 +45,7 @@ export function deltaClass(d: number) {
   return 'ok';
 }
 
-export function NextCard({ snap, lineRef, colour, textColour, units, mode }: { snap: HudSnapshot; lineRef: string; colour: string; textColour: string; units: Units; mode: Mode }) {
+export function NextCard({ snap, lineRef, colour, textColour, units, mode, free }: { snap: HudSnapshot; lineRef: string; colour: string; textColour: string; units: Units; mode: Mode; free?: boolean }) {
   const targets = useHud((s) => s.stopTargets);
   const off = useHud((s) => s.utcOffset);
   const atStop = snap.served;
@@ -39,7 +67,11 @@ export function NextCard({ snap, lineRef, colour, textColour, units, mode }: { s
         <span>
           {atStop ? 'dep' : 'arr'} {formatClock(runnerClock(sched), off)}
         </span>
-        <span className={`delta ${deltaClass(delta)}`}>{Math.abs(delta) <= 15 ? 'On time' : delta < 0 ? `${signedMmss(delta)} early` : `${signedMmss(delta)} late`}</span>
+        {free ? (
+          <span className="delta free">Free drive</span>
+        ) : (
+          <span className={`delta ${deltaClass(delta)}`}>{Math.abs(delta) <= 15 ? 'On time' : delta < 0 ? `${signedMmss(delta)} early` : `${signedMmss(delta)} late`}</span>
+        )}
         {!atStop && snap.waiting > 0 && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 'auto' }}>
             <Users size={13} /> {snap.waiting}
@@ -116,7 +148,7 @@ export function ApproachGauge({ snap, p, units, assists }: { snap: HudSnapshot; 
   );
 }
 
-export function BoardingCard({ snap, autoDoors }: { snap: HudSnapshot; autoDoors: boolean }) {
+export function BoardingCard({ snap, autoDoors, free }: { snap: HudSnapshot; autoDoors: boolean; free?: boolean }) {
   const load = Math.min(1, snap.onboard / snap.capacity);
   const doorsOpen = snap.doors === 'open' || snap.doors === 'opening';
   const late = snap.departIn < -15;
@@ -141,6 +173,10 @@ export function BoardingCard({ snap, autoDoors }: { snap: HudSnapshot; autoDoors
         {last ? (
           <span className="cd" style={{ fontSize: 16 }}>
             {snap.flowDone ? 'Shift complete' : 'Passengers leaving…'}
+          </span>
+        ) : free ? (
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent)' }}>
+            {snap.doors === 'closed' ? 'Doors closed. Go any time' : 'Free drive: depart whenever you like'}
           </span>
         ) : snap.doors === 'closed' && snap.departIn > 3 ? (
           <span className="num">

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { City, Line, ModeGroup, RouteData, RunConfig, RunResult, WeatherInfo } from '../types';
 
-export type Screen = 'home' | 'city' | 'route' | 'drive' | 'results';
+export type Screen = 'home' | 'about' | 'city' | 'route' | 'drive' | 'results';
 
 export interface AppState {
   screen: Screen;
@@ -49,7 +49,7 @@ export const useApp = create<AppState>()(() => ({
   variantIdx: 0,
   route: null,
   routeState: 'idle',
-  run: { startIdx: 0, endIdx: 0, time: 'live', weather: 'live' },
+  run: { startIdx: 0, endIdx: 0, time: 'live', weather: 'live', free: false },
   result: null,
   uiDark: true,
   searchOpen: false,

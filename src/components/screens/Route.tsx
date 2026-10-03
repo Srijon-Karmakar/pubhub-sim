@@ -108,7 +108,7 @@ export function RouteScreen() {
       <div style={{ paddingTop: 8 }}>
         <div className="stats">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="skeleton" style={{ height: 62, borderRadius: 16 }} />
+            <div key={i} className="skeleton" style={{ height: 62 }} />
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0', color: 'var(--text-2)', fontSize: 14 }}>
@@ -140,6 +140,25 @@ export function RouteScreen() {
   } else if (route && info) {
     body = (
       <div style={lineStyle}>
+        <div className="mode-pick">
+          <div className="mode-inner">
+            <span className="cond-label">Mode</span>
+            <Segmented
+              id="mode"
+              value={run.free ? 'free' : 'career'}
+              options={[
+                { value: 'career', label: 'Career' },
+                { value: 'free', label: 'Free drive' },
+              ]}
+              onChange={(v) => setRun({ free: v === 'free' })}
+            />
+            <p className="cond-hint">
+              {run.free
+                ? 'No speed limits, no emergency brake, no timetable or score. Push it as fast as you like.'
+                : 'Speed limits, timetable and scoring. Earn stars and personal bests.'}
+            </p>
+          </div>
+        </div>
         {line.variants.length > 1 && (
           <>
             <div className="section-title" style={{ marginTop: 12 }}>
@@ -290,6 +309,12 @@ export function RouteScreen() {
           </span>
         </div>
 
+        {route.synthStops && (
+          <div className="note">
+            <AlertTriangle size={18} style={{ flex: 'none', color: 'var(--warn)' }} />
+            <span>This route's stops aren't mapped in OpenStreetMap yet, so halts are spaced evenly along it.</span>
+          </div>
+        )}
         {route.approx && (
           <div className="note">
             <AlertTriangle size={18} style={{ flex: 'none', color: 'var(--warn)' }} />
@@ -304,7 +329,7 @@ export function RouteScreen() {
     routeState === 'ready' && route ? (
       <div style={lineStyle}>
         <button className="btn btn-line btn-block" style={{ height: 58, fontSize: 17 }} onClick={startRun}>
-          <Play size={20} fill="currentColor" /> Start shift
+          <Play size={20} fill="currentColor" /> {run.free ? 'Start free drive' : 'Start shift'}
           {best && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 6, opacity: 0.9, fontSize: 13 }}>
               · <Stars n={best.stars} size={12} /> {best.score.toLocaleString()}

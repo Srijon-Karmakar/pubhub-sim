@@ -123,7 +123,7 @@ class MapController {
     const map = this.map;
     if (!map) return;
     const apply = () => {
-      for (const id of ['road-name', 'place-minor', 'water-name']) {
+      for (const id of ['road-name', 'place-minor', 'water-name', 'place-town', 'place-city']) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', mode === 'minimal' ? 'none' : 'visible');
       }
     };
@@ -540,7 +540,7 @@ class MapController {
     } else {
       const [la, lo] = tr.path.pointAt(engine.s - (isBus ? 6 : 14));
       const zoom = (p.sound === 'ship' ? 17.4 : isBus ? 19.2 : L > 150 ? 18.3 : L > 60 ? 18.6 : 18.9) + this.zoomOffset;
-      target = { lng: lo, lat: la, zoom, pitch: 64, bearing: this.camBearing };
+      target = { lng: lo, lat: la, zoom, pitch: 64, bearing: this.camBearing + 20 };
       padding = { top: h * 0.3, bottom: 0, left: 0, right: 0 };
     }
     if (this.blend < 1 && this.blendFrom) {

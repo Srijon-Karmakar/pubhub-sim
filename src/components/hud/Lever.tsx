@@ -12,7 +12,7 @@ function colour(n: number, min: number, maxP: number, maxB: number) {
   if (n === 0) return 'linear-gradient(180deg,#64748b,#475569)';
   if (n > 0) {
     const t = n / maxP;
-    return `linear-gradient(180deg, hsl(${190 - t * 10} 90% ${58 - t * 6}%), hsl(${200 - t * 10} 85% ${44 - t * 6}%))`;
+    return `linear-gradient(180deg, hsl(75 100% ${60 - t * 8}%), hsl(78 100% ${44 - t * 6}%))`;
   }
   if (n === min) return 'linear-gradient(180deg,#ef4444,#b91c1c)';
   const t = -n / maxB;
@@ -89,6 +89,7 @@ export function Lever({ notch, maxP, maxB }: { notch: number; maxP: number; maxB
           style={{
             top: `${yPct(local)}%`,
             background: colour(local, min, maxP, maxB),
+            color: local > 0 ? '#0b0f00' : '#fff',
             transition: dragging.current ? 'background .15s' : 'top .18s cubic-bezier(.34,1.56,.64,1), background .2s',
           }}
         >

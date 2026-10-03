@@ -1,6 +1,7 @@
 import { AnimatePresence } from 'motion/react';
 import { useEffect } from 'react';
 import { MapStage } from './components/MapStage';
+import { AboutScreen } from './components/screens/About';
 import { CityScreen } from './components/screens/City';
 import { DriveScreen } from './components/screens/Drive';
 import { HomeScreen } from './components/screens/Home';
@@ -48,6 +49,7 @@ export default function App() {
       <MapStage />
       <AnimatePresence mode="sync">
         {screen === 'home' && <HomeScreen key="home" />}
+        {screen === 'about' && <AboutScreen key="about" />}
         {screen === 'city' && <CityScreen key="city" />}
         {screen === 'route' && <RouteScreen key="route" />}
         {(screen === 'drive' || screen === 'results') && <DriveScreen key="drive" />}

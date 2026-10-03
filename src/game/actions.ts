@@ -96,12 +96,21 @@ export function goHome() {
   const c = useApp.getState().city ?? homeEnv();
   setApp({ screen: 'home', line: null, route: null, routeState: 'idle' });
   mapCtl.setInteractive(false);
+  mapCtl.setLabels('minimal');
   mapCtl.startOrbit(c.lat, c.lon, { zoom: 15.2, pitch: 60, speed: 2.4 });
+}
+
+export function openAbout() {
+  setApp({ screen: 'about' });
+  pushHistory('about');
 }
 
 export function back() {
   const s = useApp.getState();
   switch (s.screen) {
+    case 'about':
+      setApp({ screen: 'home' });
+      break;
     case 'route':
       closeRoute();
       break;
@@ -148,6 +157,7 @@ export async function openCity(city: City, force = false) {
   useProgress.getState().addRecentCity(city);
   mapCtl.clearRoute();
   mapCtl.setInteractive(true);
+  mapCtl.setLabels('full');
   mapCtl.startOrbit(city.lat, city.lon, { zoom: 12.4, pitch: 42, speed: 1.4 });
   applyEnv(Date.now(), city.lat, city.lon, 'clear');
 
@@ -324,6 +334,7 @@ export function startRun() {
     hourLocal: localHour(clock, off),
     weather: wk,
     autoDoors: settings.autoDoors,
+    free: run.free,
   });
   mapCtl.showRoute(route, run.startIdx, run.endIdx);
   runner.start(engine, { city, line, startIdx: run.startIdx, endIdx: run.endIdx, utcOffset: off });
