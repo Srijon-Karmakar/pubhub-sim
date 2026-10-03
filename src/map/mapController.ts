@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection } from 'geojson';
 import type { CameraMode, RouteData, WeatherKind } from '../types';
 import { visibleOn } from '../lib/color';
-import { applyWeather, nightness, paletteForSun, type Palette } from '../lib/env/palette';
+import { applyWeather, liftPalette, nightness, paletteForSun, type Palette } from '../lib/env/palette';
 import { angleDiff, clamp, lerp } from '../lib/geo';
 import type { Engine } from '../lib/sim/engine';
 import { SceneLayer } from './sceneLayer';
@@ -132,9 +132,9 @@ class MapController {
   }
 
   // ------------------------------------------------------------ environment
-  setEnvironment(sunAlt: number, sunBearing: number, weather: WeatherKind) {
+  setEnvironment(sunAlt: number, sunBearing: number, weather: WeatherKind, lift = 0) {
     const night = nightness(sunAlt);
-    const p = applyWeather(paletteForSun(sunAlt), weather, night);
+    const p = liftPalette(applyWeather(paletteForSun(sunAlt), weather, night), lift);
     this.palette = p;
     this.dark = night > 0.55;
     this.scene.night = night;

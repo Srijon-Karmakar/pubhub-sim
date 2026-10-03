@@ -13,8 +13,9 @@ const onLanding = () => {
 };
 
 export function computeDark(alt = lastAlt): boolean {
-  if (onLanding()) return true;
   const pref = useSettings.getState().theme;
+  // landing is dark unless the player explicitly picked Light
+  if (onLanding()) return pref !== 'light';
   if (pref === 'light') return false;
   if (pref === 'dark') return true;
   const sys = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
@@ -30,10 +31,17 @@ export function syncTheme(alt = lastAlt) {
   meta?.setAttribute('content', dark ? '#0a0d04' : '#f4f5f7');
 }
 
-/** Dark night-time map and UI for the landing screens, whatever the time or settings. */
+/** Landing backdrop: a lifted night map, or a daytime map when the player chose Light. */
 export function landingEnv() {
-  mapCtl.setEnvironment(-30, Math.PI, 'clear');
+  if (useSettings.getState().theme === 'light') mapCtl.setEnvironment(40, Math.PI * 0.8, 'clear');
+  else mapCtl.setEnvironment(-30, Math.PI, 'clear', 0.22);
   syncTheme();
+}
+
+/** Re-apply the theme after a settings change (landing screens repaint the map too). */
+export function refreshTheme() {
+  if (onLanding()) landingEnv();
+  else syncTheme();
 }
 
 /** Lights the world (map palette, sky, 3D shading, UI theme) for an instant at a place. */

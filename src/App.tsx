@@ -10,7 +10,7 @@ import { RouteScreen } from './components/screens/Route';
 import { SearchOverlay } from './components/screens/SearchOverlay';
 import { SettingsSheet } from './components/screens/SettingsSheet';
 import { initHistory } from './game/actions';
-import { syncTheme } from './game/env';
+import { refreshTheme, syncTheme } from './game/env';
 import { audio } from './lib/audio/audio';
 import { setHaptics } from './lib/haptics';
 import { useApp } from './store/app';
@@ -41,7 +41,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    syncTheme();
+    refreshTheme();
   }, [theme]);
 
   return (

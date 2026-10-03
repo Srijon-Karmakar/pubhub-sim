@@ -235,3 +235,30 @@ export function applyWeather(p: Palette, w: WeatherKind, night: number): Palette
   out.lightIntensity = (p.lightIntensity as number) * 0.8;
   return out as unknown as Palette;
 }
+
+/** Brightens a (night) palette so the city stays readable as a backdrop. */
+export function liftPalette(p: Palette, amt: number): Palette {
+  if (amt <= 0) return p;
+  const out = { ...p } as Record<string, string | number>;
+  const lift: [keyof Palette, number][] = [
+    ['bg', 0.6],
+    ['residential', 0.6],
+    ['industrial', 0.6],
+    ['building', 1.3],
+    ['buildingTop', 1.5],
+    ['roadMinor', 1.4],
+    ['roadMajor', 1.7],
+    ['motorway', 1.4],
+    ['service', 1.1],
+    ['path', 1],
+    ['rail', 1.4],
+    ['water', 0.9],
+    ['waterLine', 0.9],
+    ['park', 0.9],
+    ['wood', 0.9],
+    ['grass', 0.9],
+  ];
+  for (const [k, w] of lift) out[k] = mixHex(p[k] as string, '#a9b8d0', Math.min(0.85, amt * w));
+  out.label = mixHex(p.label, '#ffffff', amt);
+  return out as unknown as Palette;
+}

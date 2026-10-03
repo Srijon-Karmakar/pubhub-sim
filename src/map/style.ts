@@ -1,5 +1,6 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import type { Palette } from '../lib/env/palette';
+import { mixHex } from '../lib/color';
 
 const SRC = 'omt';
 const NAME: ExpressionSpecification = ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
@@ -158,15 +159,8 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
       minzoom: 14,
       filter: ['!=', ['get', 'hide_3d'], true],
       paint: {
-        'fill-extrusion-color': [
-          'interpolate',
-          ['linear'],
-          ['coalesce', ['get', 'render_height'], 6],
-          0,
-          p.building,
-          60,
-          p.buildingTop,
-        ],
+        // a constant colour updates instantly on theme changes; data-driven colours keep stale tiles
+        'fill-extrusion-color': mixHex(p.building, p.buildingTop, 0.45),
         'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, ['coalesce', ['get', 'render_height'], 6]],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
         'fill-extrusion-opacity': buildingOpacity,

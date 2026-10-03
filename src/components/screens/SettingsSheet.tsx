@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { audio } from '../../lib/audio/audio';
 import { cacheClear, cacheCount } from '../../lib/osm/cache';
 import { setHaptics } from '../../lib/haptics';
-import { syncTheme } from '../../game/env';
+import { refreshTheme } from '../../game/env';
 import { setApp } from '../../store/app';
 import { useProgress } from '../../store/progress';
 import { useSettings, type ThemePref } from '../../store/settings';
@@ -53,7 +53,7 @@ export function SettingsSheet() {
             ]}
             onChange={(v) => {
               s.set({ theme: v });
-              setTimeout(() => syncTheme(), 0);
+              setTimeout(() => refreshTheme(), 0);
             }}
           />
           <p className="faint" style={{ fontSize: 12, margin: '6px 2px 0' }}>

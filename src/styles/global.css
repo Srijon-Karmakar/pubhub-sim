@@ -3261,7 +3261,7 @@ body {
 }
 
 .scrim-top {
-  background: linear-gradient(180deg, color-mix(in oklab, var(--wash) 92%, transparent) 0%, transparent 100%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--wash) 70%, transparent) 0%, transparent 100%);
 }
 
 .scrim-bottom {
@@ -3269,15 +3269,15 @@ body {
 }
 
 .app[data-screen='home'] .scrim-bottom {
-  background: linear-gradient(0deg, var(--wash) 0%, color-mix(in oklab, var(--wash) 94%, transparent) 60%, transparent 100%);
+  background: linear-gradient(0deg, color-mix(in oklab, var(--wash) 92%, transparent) 0%, color-mix(in oklab, var(--wash) 72%, transparent) 45%, transparent 85%);
 }
 
 @media (min-width: 900px) {
   .app[data-screen='home'] .scrim-bottom,
   .app[data-screen='about'] .scrim-bottom {
     height: 100%;
-    background: linear-gradient(90deg, var(--wash) 0%, color-mix(in oklab, var(--wash) 88%, transparent) 36%, transparent 64%),
-      linear-gradient(0deg, color-mix(in oklab, var(--wash) 80%, transparent) 0%, transparent 42%);
+    background: linear-gradient(90deg, color-mix(in oklab, var(--wash) 88%, transparent) 0%, color-mix(in oklab, var(--wash) 62%, transparent) 26%, transparent 48%),
+      linear-gradient(0deg, color-mix(in oklab, var(--wash) 50%, transparent) 0%, transparent 30%);
   }
 }
 
@@ -3466,4 +3466,24 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* landing: horizontal shade only (no top/bottom fades) */
+.app[data-screen='home'] .scrim-top,
+.app[data-screen='about'] .scrim-top {
+  display: none;
+}
+
+.app[data-screen='home'] .scrim-bottom,
+.app[data-screen='about'] .scrim-bottom {
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--wash) 90%, transparent) 0%, color-mix(in oklab, var(--wash) 70%, transparent) 55%, color-mix(in oklab, var(--wash) 25%, transparent) 100%);
+}
+
+@media (min-width: 900px) {
+  .app[data-screen='home'] .scrim-bottom,
+  .app[data-screen='about'] .scrim-bottom {
+    background: linear-gradient(90deg, color-mix(in oklab, var(--wash) 88%, transparent) 0%, color-mix(in oklab, var(--wash) 62%, transparent) 26%, transparent 48%);
+  }
 }
