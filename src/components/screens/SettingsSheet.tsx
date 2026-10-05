@@ -1,4 +1,4 @@
-import { BatteryMedium, Compass, Crosshair, Database, DoorOpen, Gauge, Megaphone, Palette, Trash2, Volume2, X } from 'lucide-react';
+import { BatteryMedium, Mountain, Compass, Crosshair, Database, DoorOpen, Gauge, Megaphone, Palette, Trash2, Volume2, X } from 'lucide-react';
 import { mapCtl } from '../../map/mapController';
 import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
@@ -105,6 +105,24 @@ export function SettingsSheet() {
               onChange={(v) => {
                 s.set({ quality: v ? 'low' : 'high' });
                 mapCtl.setQuality(v ? 'low' : 'high');
+                mapCtl.setTerrain(!v && s.terrain);
+              }}
+            />
+          </div>
+          <div className="set-row">
+            <span className="ico">
+              <Mountain size={17} />
+            </span>
+            <span className="txt">
+              <b>3D terrain</b>
+              <small>Real hills and mountains; routes climb with the land</small>
+            </span>
+            <Toggle
+              on={s.terrain}
+              label="3D terrain"
+              onChange={(v) => {
+                s.set({ terrain: v });
+                mapCtl.setTerrain(v && s.quality !== 'low');
               }}
             />
           </div>

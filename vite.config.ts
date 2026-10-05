@@ -29,6 +29,15 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
+            urlPattern: /^https:\/\/elevation-tiles-prod\.s3\.amazonaws\.com\/.*/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'terrain-tiles',
+              expiration: { maxEntries: 3000, maxAgeSeconds: 60 * 60 * 24 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             urlPattern: /^https:\/\/tiles\.openfreemap\.org\/.*/,
             handler: 'CacheFirst',
             options: {

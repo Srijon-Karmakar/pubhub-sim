@@ -34,6 +34,13 @@ class AudioEngine {
   private rollFilter!: BiquadFilterNode;
   private rollGain!: GainNode;
   private dieselOsc!: OscillatorNode;
+  private pulseOsc!: OscillatorNode;
+  private pulseGain!: GainNode;
+  private pulseFilter!: BiquadFilterNode;
+  private turboOsc!: OscillatorNode;
+  private turboGain!: GainNode;
+  private gearOsc!: OscillatorNode;
+  private gearGain!: GainNode;
   private dieselSub!: OscillatorNode;
   private dieselFilter!: BiquadFilterNode;
   private dieselGain!: GainNode;
@@ -148,6 +155,44 @@ class AudioEngine {
     shaper.connect(this.dieselFilter).connect(this.dieselGain);
     bus(this.dieselGain);
 
+    // combustion: filtered noise chopped at the cylinder firing rate gives the "chug"
+    const pulseNoise = this.noiseSource();
+    this.pulseFilter = ctx.createBiquadFilter();
+    this.pulseFilter.type = 'bandpass';
+    this.pulseFilter.frequency.value = 520;
+    this.pulseFilter.Q.value = 0.9;
+    const chop = ctx.createGain();
+    chop.gain.value = 0.5;
+    this.pulseOsc = ctx.createOscillator();
+    this.pulseOsc.type = 'square';
+    const depth = ctx.createGain();
+    depth.gain.value = 0.5;
+    this.pulseOsc.connect(depth).connect(chop.gain);
+    this.pulseGain = ctx.createGain();
+    this.pulseGain.gain.value = 0;
+    pulseNoise.connect(this.pulseFilter).connect(chop).connect(this.pulseGain);
+    bus(this.pulseGain);
+
+    // turbocharger whistle rising with load
+    this.turboOsc = ctx.createOscillator();
+    this.turboOsc.type = 'sine';
+    this.turboGain = ctx.createGain();
+    this.turboGain.gain.value = 0;
+    this.turboOsc.connect(this.turboGain);
+    bus(this.turboGain);
+
+    // electric traction: gear-mesh whine of the final drive
+    this.gearOsc = ctx.createOscillator();
+    this.gearOsc.type = 'triangle';
+    const gearBp = ctx.createBiquadFilter();
+    gearBp.type = 'bandpass';
+    gearBp.Q.value = 6;
+    gearBp.frequency.value = 1800;
+    this.gearGain = ctx.createGain();
+    this.gearGain.gain.value = 0;
+    this.gearOsc.connect(gearBp).connect(this.gearGain);
+    bus(this.gearGain);
+
     // rain
     const rain = this.noiseSource();
     this.rainFilter = ctx.createBiquadFilter();
@@ -167,7 +212,7 @@ class AudioEngine {
     this.squealOsc.connect(this.squealGain);
     bus(this.squealGain);
 
-    for (const o of [this.motorA, this.motorB, this.whine, this.dieselOsc, this.dieselSub, this.squealOsc]) o.start();
+    for (const o of [this.motorA, this.motorB, this.whine, this.dieselOsc, this.dieselSub, this.squealOsc, this.pulseOsc, this.turboOsc, this.gearOsc]) o.start();
     this.pickVoice();
   }
 
@@ -214,12 +259,12 @@ class AudioEngine {
     this.enabled = on;
     this.volume = volume;
     if (this.ctx) this.master.gain.setTargetAtTime(on ? volume : 0, this.ctx.currentTime, 0.05);
-    if (!on) window.speechSynthesis?.cancel();
+    if (!on) this.clearSpeech();
   }
 
   suspend() {
     if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
-    window.speechSynthesis?.cancel();
+    this.clearSpeech();
   }
 
   resume() {
@@ -230,7 +275,8 @@ class AudioEngine {
   idle() {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    for (const g of [this.motorGain, this.whineGain, this.rollGain, this.dieselGain, this.rainGain, this.squealGain]) g.gain.setTargetAtTime(0, t, 0.25);
+    for (const g of [this.motorGain, this.whineGain, this.rollGain, this.dieselGain, this.rainGain, this.squealGain, this.pulseGain, this.turboGain, this.gearGain]) g.gain.setTargetAtTime(0, t, 0.25);
+    this.hornStop();
     this.wet.gain.setTargetAtTime(0, t, 0.3);
   }
 
@@ -258,6 +304,10 @@ class AudioEngine {
       this.whine.frequency.setTargetAtTime(900 + kmh * 22, t, T);
       this.whineGain.gain.setTargetAtTime(0.012 * Math.min(1, v) * (0.3 + eff), t, T);
       this.dieselGain.gain.setTargetAtTime(0, t, T);
+      this.pulseGain.gain.setTargetAtTime(0, t, T);
+      this.turboGain.gain.setTargetAtTime(0, t, T);
+      this.gearOsc.frequency.setTargetAtTime(40 + kmh * 26, t, T);
+      this.gearGain.gain.setTargetAtTime(0.02 * Math.min(1, v / 3) * (0.35 + eff * 0.9), t, T);
     } else {
       this.motorGain.gain.setTargetAtTime(0, t, T);
       this.whineGain.gain.setTargetAtTime(0, t, T);
@@ -276,7 +326,14 @@ class AudioEngine {
       this.dieselOsc.frequency.setTargetAtTime(fire, t, 0.12);
       this.dieselSub.frequency.setTargetAtTime(fire / 2, t, 0.12);
       this.dieselFilter.frequency.setTargetAtTime(ship ? 260 + eff * 200 : 380 + Math.max(0, f.effort) * 700, t, 0.12);
-      this.dieselGain.gain.setTargetAtTime((ship ? 0.12 : 0.07) * (0.55 + Math.max(0, f.effort) * 0.9), t, 0.15);
+      this.dieselGain.gain.setTargetAtTime((ship ? 0.12 : 0.06) * (0.55 + Math.max(0, f.effort) * 0.9), t, 0.15);
+      const load = Math.max(0, f.effort);
+      this.pulseOsc.frequency.setTargetAtTime(fire, t, 0.1);
+      this.pulseFilter.frequency.setTargetAtTime((ship ? 260 : 420) + rpm * 0.18 + load * 500, t, 0.12);
+      this.pulseGain.gain.setTargetAtTime((ship ? 0.22 : 0.16) * (0.45 + load * 0.9), t, 0.12);
+      this.turboOsc.frequency.setTargetAtTime(1600 + rpm * 1.1 + load * 900, t, 0.3);
+      this.turboGain.gain.setTargetAtTime(ship ? 0 : 0.006 + load * 0.014 * Math.min(1, rpm / 1400), t, 0.35);
+      this.gearGain.gain.setTargetAtTime(0, t, T);
     }
 
     // rolling / water
@@ -379,38 +436,137 @@ class AudioEngine {
   }
 
   // ------------------------------------------------------------ one-shots
-  playHorn() {
+  // ------------------------------------------------------------ horns (held)
+  private hornVoices: { stop: (at: number) => void }[] = [];
+  private hornTimer = 0;
+  private bellTimer = 0;
+
+  /** A resonant horn voice: oscillator(s) through a body filter with an attack/release envelope. */
+  private hornVoice(freq: number, opts: { type: OscillatorType; gain: number; q: number; formant: number; attack: number; release: number; bend?: number; vibrato?: number; drive?: number }) {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = opts.type;
+    // air horns "bloom" up to pitch as pressure builds
+    o.frequency.setValueAtTime(freq * (1 - (opts.bend ?? 0)), t);
+    o.frequency.exponentialRampToValueAtTime(freq, t + Math.max(0.02, opts.attack * 1.4));
+    let lfo: OscillatorNode | null = null;
+    if (opts.vibrato) {
+      lfo = ctx.createOscillator();
+      lfo.frequency.value = 5.5;
+      const lg = ctx.createGain();
+      lg.gain.value = freq * opts.vibrato;
+      lfo.connect(lg).connect(o.frequency);
+      lfo.start(t);
+    }
+    const body = ctx.createBiquadFilter();
+    body.type = 'bandpass';
+    body.frequency.value = opts.formant;
+    body.Q.value = opts.q;
+    const air = ctx.createBiquadFilter();
+    air.type = 'lowpass';
+    air.frequency.value = Math.min(9000, opts.formant * 3.2);
+    let src: AudioNode = o;
+    if (opts.drive) {
+      const sh = ctx.createWaveShaper();
+      sh.curve = this.distortion(opts.drive);
+      o.connect(sh);
+      src = sh;
+    }
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(opts.gain, t + opts.attack);
+    src.connect(body).connect(air).connect(g);
+    g.connect(this.dry);
+    g.connect(this.wet);
+    o.start(t);
+    return {
+      stop: (at: number) => {
+        g.gain.cancelScheduledValues(at);
+        g.gain.setValueAtTime(g.gain.value, at);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + opts.release);
+        o.frequency.setTargetAtTime(freq * (1 - (opts.bend ?? 0) * 0.6), at, opts.release / 2);
+        o.stop(at + opts.release + 0.05);
+        lfo?.stop(at + opts.release + 0.05);
+      },
+    };
+  }
+
+  private bell() {
     const ctx = this.ctx;
     if (!ctx) return;
     const t = ctx.currentTime;
+    // inharmonic partials of a struck bell
+    for (const [r, g, d] of [
+      [1, 0.15, 1.3],
+      [2.76, 0.08, 0.9],
+      [5.4, 0.05, 0.6],
+      [8.93, 0.025, 0.4],
+    ] as const) {
+      this.tone(1180 * r, d, { gain: g, at: t, attack: 0.002 });
+      this.tone(1180 * r, d * 0.8, { gain: g * 0.7, at: t + 0.16, attack: 0.002 });
+    }
+  }
+
+  hornStart() {
+    const ctx = this.ctx;
+    if (!ctx || !this.enabled) return;
+    if (this.hornVoices.length) return;
+    window.clearTimeout(this.hornTimer);
     switch (this.horn) {
-      case 'train':
-        for (const f of [311, 370, 466]) this.tone(f, 1.1, { type: 'sawtooth', gain: 0.09, attack: 0.06, filter: 1800 });
+      case 'bus':
+        // two-tone electric car/bus horn: harsh, buzzy, instant
+        for (const [f, g] of [
+          [415, 0.11],
+          [523, 0.09],
+        ] as const)
+          this.hornVoices.push(this.hornVoice(f, { type: 'square', gain: g, q: 2.2, formant: f * 2.6, attack: 0.012, release: 0.06, drive: 6 }));
         break;
       case 'metro':
-        this.tone(660, 0.22, { type: 'square', gain: 0.07, filter: 2400 });
-        this.tone(880, 0.22, { type: 'square', gain: 0.06, filter: 2400 });
-        this.tone(660, 0.3, { type: 'square', gain: 0.07, filter: 2400, at: t + 0.28 });
-        this.tone(880, 0.3, { type: 'square', gain: 0.06, filter: 2400, at: t + 0.28 });
+        // electronic two-tone warning horn of a modern EMU
+        for (const [f, g] of [
+          [740, 0.07],
+          [932, 0.055],
+        ] as const)
+          this.hornVoices.push(this.hornVoice(f, { type: 'triangle', gain: g, q: 1.4, formant: f * 1.5, attack: 0.03, release: 0.12, vibrato: 0.004 }));
         break;
-      case 'tram':
-        for (const at of [t, t + 0.32]) {
-          for (const [f, g] of [
-            [1250, 0.16],
-            [1870, 0.08],
-            [3120, 0.05],
-          ] as const)
-            this.tone(f, 1.1, { gain: g, at, attack: 0.002 });
-        }
-        break;
-      case 'bus':
-        this.tone(410, 0.55, { type: 'square', gain: 0.07, filter: 1600, attack: 0.02 });
-        this.tone(515, 0.55, { type: 'square', gain: 0.06, filter: 1600, attack: 0.02 });
+      case 'train':
+        // three-chime air horn: rich, resonant, blooms up to pitch
+        for (const [f, g] of [
+          [277, 0.085],
+          [349, 0.075],
+          [415, 0.07],
+        ] as const)
+          this.hornVoices.push(this.hornVoice(f, { type: 'sawtooth', gain: g, q: 5, formant: f * 2, attack: 0.14, release: 0.45, bend: 0.06, vibrato: 0.003 }));
         break;
       case 'ship':
-        for (const f of [98, 123, 147]) this.tone(f, 1.8, { type: 'sawtooth', gain: 0.12, attack: 0.15, filter: 700 });
+        for (const [f, g] of [
+          [87, 0.14],
+          [110, 0.1],
+        ] as const)
+          this.hornVoices.push(this.hornVoice(f, { type: 'sawtooth', gain: g, q: 3, formant: f * 3, attack: 0.35, release: 0.9, bend: 0.04 }));
+        break;
+      case 'tram':
+        // trams ring a bell repeatedly while the button is held
+        this.bell();
+        this.bellTimer = window.setInterval(() => this.bell(), 520);
+        this.hornVoices.push({ stop: () => window.clearInterval(this.bellTimer) });
         break;
     }
+    // never stick on (e.g. pointer released outside the window)
+    this.hornTimer = window.setTimeout(() => this.hornStop(), 4000);
+  }
+
+  hornStop() {
+    const ctx = this.ctx;
+    window.clearTimeout(this.hornTimer);
+    if (!ctx) {
+      this.hornVoices = [];
+      return;
+    }
+    const at = ctx.currentTime;
+    for (const v of this.hornVoices) v.stop(at);
+    this.hornVoices = [];
   }
 
   click8() {
@@ -486,24 +642,76 @@ class AudioEngine {
     synth.addEventListener?.('voiceschanged', choose);
   }
 
+  // ------------------------------------------------------------ announcements
+  private speechQueue: string[] = [];
+  private speaking = false;
+  /** strong reference: Chrome garbage-collects utterances mid-speech and silently drops them */
+  private current: SpeechSynthesisUtterance | null = null;
+  private speechTimer = 0;
+
+  /** Queues a station announcement (chime + voice). Announcements never cut each other off. */
   announce(text: string) {
     if (!this.enabled || !this.announcements) return;
-    const synth = window.speechSynthesis;
+    // keep only the freshest pending message so we never fall far behind the train
+    this.speechQueue = [...this.speechQueue.slice(-1), text];
+    if (!this.speaking) this.nextAnnouncement();
+  }
+
+  private nextAnnouncement() {
+    const text = this.speechQueue.shift();
+    if (!text || !this.enabled || !this.announcements) {
+      this.speaking = false;
+      return;
+    }
+    this.speaking = true;
     const ctx = this.ctx;
     if (ctx) {
+      if (ctx.state === 'suspended') void ctx.resume();
       const t = ctx.currentTime;
       this.tone(659, 0.5, { gain: 0.08, at: t });
       this.tone(831, 0.5, { gain: 0.08, at: t + 0.22 });
       this.tone(988, 0.8, { gain: 0.08, at: t + 0.44 });
     }
-    if (!synth) return;
-    synth.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    if (this.voice) u.voice = this.voice;
-    u.rate = 0.98;
-    u.pitch = 1.02;
-    u.volume = Math.min(1, this.volume + 0.15);
-    setTimeout(() => synth.speak(u), 900);
+    const synth = window.speechSynthesis;
+    if (!synth) {
+      window.setTimeout(() => this.nextAnnouncement(), 1400);
+      return;
+    }
+    window.setTimeout(() => {
+      if (!this.speaking) return;
+      if (!this.voice) this.pickVoice();
+      const u = new SpeechSynthesisUtterance(text);
+      if (this.voice) {
+        u.voice = this.voice;
+        u.lang = this.voice.lang;
+      } else u.lang = 'en-GB';
+      u.rate = 0.98;
+      u.pitch = 1.02;
+      u.volume = Math.min(1, this.volume + 0.15);
+      const done = () => {
+        if (this.current !== u) return;
+        this.current = null;
+        window.clearTimeout(this.speechTimer);
+        window.setTimeout(() => this.nextAnnouncement(), 250);
+      };
+      u.onend = done;
+      u.onerror = done;
+      this.current = u;
+      // Chrome can leave the engine paused (e.g. after the tab was hidden)
+      synth.resume();
+      synth.speak(u);
+      // safety net if the browser never fires onend
+      window.clearTimeout(this.speechTimer);
+      this.speechTimer = window.setTimeout(done, 2500 + text.length * 110);
+    }, 900);
+  }
+
+  clearSpeech() {
+    this.speechQueue = [];
+    this.speaking = false;
+    this.current = null;
+    window.clearTimeout(this.speechTimer);
+    window.speechSynthesis?.cancel();
   }
 }
 

@@ -49,7 +49,7 @@ export function NextCard({ snap, lineRef, colour, textColour, units, mode, free 
   const targets = useHud((s) => s.stopTargets);
   const off = useHud((s) => s.utcOffset);
   const atStop = snap.served;
-  const label = atStop ? (snap.k === snap.stopsTotal - 1 ? 'Terminus' : 'At platform') : snap.k === snap.stopsTotal - 1 ? 'Next · Terminus' : 'Next stop';
+  const label = atStop ? (snap.k === snap.stopsTotal - 1 ? 'Terminus' : snap.car ? 'At stop' : 'At platform') : snap.k === snap.stopsTotal - 1 ? 'Next · Terminus' : 'Next stop';
   const delta = snap.delta;
   const sched = atStop ? snap.schedDep : snap.schedArr;
   return (
@@ -72,9 +72,9 @@ export function NextCard({ snap, lineRef, colour, textColour, units, mode, free 
         ) : (
           <span className={`delta ${deltaClass(delta)}`}>{Math.abs(delta) <= 15 ? 'On time' : delta < 0 ? `${signedMmss(delta)} early` : `${signedMmss(delta)} late`}</span>
         )}
-        {!atStop && snap.waiting > 0 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 'auto' }}>
-            <Users size={13} /> {snap.waiting}
+        {(atStop ? snap.onboard > 0 : snap.waiting > 0) && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 'auto' }} title={atStop ? 'On board' : 'Waiting at next stop'}>
+            <Users size={13} /> {(atStop ? snap.onboard : snap.waiting).toLocaleString()}
           </span>
         )}
       </div>
@@ -153,56 +153,55 @@ export function BoardingCard({ snap, autoDoors, free }: { snap: HudSnapshot; aut
   const doorsOpen = snap.doors === 'open' || snap.doors === 'opening';
   const late = snap.departIn < -15;
   const last = snap.k === snap.stopsTotal - 1;
+  let label: string;
+  let value = '';
+  let tone = '';
+  if (last) label = snap.flowDone ? 'Shift complete' : 'Passengers leaving';
+  else if (free) label = snap.doors === 'closed' ? 'Go any time' : 'Depart any time';
+  else if (snap.doors === 'closed' && snap.departIn > 3) {
+    label = 'Hold';
+    value = mmss(snap.departIn);
+    tone = 'info';
+  } else if (snap.doors === 'closed') {
+    label = 'Push lever to depart';
+    tone = 'good';
+  } else if (snap.departIn > 0) {
+    label = 'Depart';
+    value = mmss(snap.departIn);
+  } else if (late) {
+    label = 'Late';
+    value = '+' + mmss(-snap.departIn);
+    tone = 'warn';
+  } else {
+    label = 'Depart now';
+    tone = 'good';
+  }
   return (
-    <motion.div className="board glass" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}>
-      <div className="flows num">
-        <span style={{ color: snap.alightLeft ? 'var(--warn)' : 'var(--text-3)' }}>
-          <ArrowDown size={16} /> {snap.alightLeft}
+    <motion.div className="board" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+      <div className="board-row">
+        <span className="flows num">
+          <span className={snap.alightLeft ? 'warn' : ''}>
+            <ArrowDown size={13} />
+            {snap.alightLeft}
+          </span>
+          <span className={snap.boardLeft ? 'good' : ''}>
+            <ArrowUp size={13} />
+            {snap.boardLeft}
+          </span>
         </span>
-        <span style={{ color: snap.boardLeft ? 'var(--good)' : 'var(--text-3)' }}>
-          <ArrowUp size={16} /> {snap.boardLeft}
+        <span className={`cd num ${tone}`}>
+          <small>{label}</small>
+          {value && <b>{value}</b>}
         </span>
-        <span style={{ marginLeft: 'auto', color: 'var(--text-2)', fontSize: 13 }}>
-          <Users size={15} /> {snap.onboard.toLocaleString()} / {snap.capacity.toLocaleString()}
-        </span>
-      </div>
-      <div className="load">
-        <i style={{ width: `${load * 100}%` }} />
-      </div>
-      <div className="foot">
-        {last ? (
-          <span className="cd" style={{ fontSize: 16 }}>
-            {snap.flowDone ? 'Shift complete' : 'Passengers leaving…'}
-          </span>
-        ) : free ? (
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent)' }}>
-            {snap.doors === 'closed' ? 'Doors closed. Go any time' : 'Free drive: depart whenever you like'}
-          </span>
-        ) : snap.doors === 'closed' && snap.departIn > 3 ? (
-          <span className="num">
-            <span className="faint" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.1em', display: 'block' }}>
-              HOLD FOR TIMETABLE
-            </span>
-            <span className="cd" style={{ color: 'var(--info)' }}>{mmss(snap.departIn)}</span>
-          </span>
-        ) : snap.doors === 'closed' ? (
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--good)' }}>Doors closed. Push the lever to depart</span>
-        ) : (
-          <span className="num">
-            <span className="faint" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.1em', display: 'block' }}>
-              {snap.departIn > 0 ? 'DEPART IN' : late ? 'RUNNING LATE' : 'DEPART NOW'}
-            </span>
-            <span className="cd" style={{ color: snap.departIn > 0 ? undefined : late ? 'var(--warn)' : 'var(--good)' }}>
-              {mmss(Math.abs(snap.departIn))}
-            </span>
-          </span>
-        )}
         {!last && doorsOpen && !autoDoors && (
-          <button className={`btn ${snap.flowDone && snap.departIn <= 3 ? 'btn-primary' : 'btn-soft'}`} onClick={() => runner.doors()}>
-            <DoorClosed size={17} /> Close doors
+          <button className={`board-btn ${snap.flowDone && snap.departIn <= 3 ? 'hot' : ''}`} onClick={() => runner.doors()} aria-label="Close doors">
+            <DoorClosed size={14} /> Close
           </button>
         )}
-        {snap.doors === 'closing' && <span className="spinner" style={{ color: 'var(--warn)' }} />}
+        {snap.doors === 'closing' && <span className="spinner" style={{ color: 'var(--warn)', width: 14, height: 14 }} />}
+      </div>
+      <div className="load" title={`${snap.onboard} / ${snap.capacity} on board`}>
+        <i style={{ width: `${load * 100}%` }} />
       </div>
     </motion.div>
   );
@@ -251,7 +250,24 @@ export function Coach({ snap, p }: { snap: HudSnapshot; p: VehicleProfile }) {
   if (done) return null;
   let msg: string | null = null;
   let Icon = Sparkles;
-  if (snap.served && snap.k === 0 && snap.doors !== 'closed') {
+  if (snap.car) {
+    if (snap.served && snap.k === 0 && snap.doors !== 'closed') {
+      msg = 'Passengers are boarding. Close the doors when the timer hits zero.';
+      Icon = DoorClosed;
+    } else if (snap.served && snap.doors === 'closed' && snap.speed < 0.5) {
+      msg = 'Hold GAS to drive. Drag the wheel (or A/D) to steer along the highlighted road.';
+      Icon = ArrowUp;
+    } else if (!snap.served && snap.inZone && snap.speed === 0) {
+      msg = snap.kerbOk ? 'Nice! Tap the door button to open the doors.' : 'Pull in closer to the kerb, then open the doors.';
+      Icon = DoorOpen;
+    } else if (!snap.served && snap.distToStop < p.approach) {
+      msg = 'Hold BRAKE to stop beside the green zone, close to the kerb.';
+      Icon = ArrowDown;
+    } else if (!snap.served && snap.speed > 1) {
+      msg = 'Keep on the route and under the speed limit. Gear R reverses when stopped.';
+      Icon = Gauge;
+    }
+  } else if (snap.served && snap.k === 0 && snap.doors !== 'closed') {
     msg = 'Passengers are boarding. When the timer hits zero, close the doors.';
     Icon = DoorClosed;
   } else if (snap.served && snap.doors === 'closed' && snap.speed < 0.5) {

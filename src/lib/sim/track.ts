@@ -20,6 +20,27 @@ function mergeSpans(spans: Span[], gap: number, minLen: number): Span[] {
   return out.filter((s) => s.s1 - s.s0 >= minLen);
 }
 
+function gaussian1d(src: Float32Array, sigma: number): Float32Array {
+  const n = src.length;
+  if (sigma < 0.5) return Float32Array.from(src);
+  const out = new Float32Array(n);
+  const r = Math.ceil(sigma * 3);
+  const w: number[] = [];
+  for (let k = -r; k <= r; k++) w.push(Math.exp((-k * k) / (2 * sigma * sigma)));
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let ws = 0;
+    for (let k = -r; k <= r; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      sum += src[j] * w[k + r];
+      ws += w[k + r];
+    }
+    out[i] = sum / ws;
+  }
+  return out;
+}
+
 /**
  * Everything the simulator and renderer need to know about the line:
  * geometry, speed restrictions, tunnels and viaducts.
@@ -32,6 +53,7 @@ export class Track {
   /** curve-only limit per 10 m (for lateral comfort) */
   readonly curveV: Float32Array;
   readonly elev: Float32Array;
+  readonly ground: Float32Array;
   readonly tunnels: Span[];
   readonly bridges: Span[];
   readonly ways: WaySpan[];
@@ -159,17 +181,74 @@ export class Track {
           140,
         )
       : [];
-    this.elev = new Float32Array(N);
+    // --- terrain: raw ground height along the line ---------------------
+    this.ground = new Float32Array(N);
+    const src = route.ground;
+    if (src && route.mode !== 'ferry' && src.z.length > 1) {
+      for (let i = 0; i < N; i++) {
+        const f = (i * STEP) / src.step;
+        const k = Math.min(src.z.length - 2, Math.max(0, Math.floor(f)));
+        const t = Math.min(1, Math.max(0, f - k));
+        this.ground[i] = src.z[k] * (1 - t) + src.z[k + 1] * t;
+      }
+    }
+    // the track can't follow every bump: smooth the ground into a gentle grade
+    const road = !profile.rail;
+    const sigma = (road ? 4 : route.mode === 'tram' ? 12 : route.mode === 'light_rail' ? 30 : 50) / STEP;
+    const base = gaussian1d(this.ground, sigma);
+    // tunnels run straight between their portals; long bridges stay level across valleys
+    const line = (sp: Span, floorOnly: boolean) => {
+      const i0 = Math.max(0, Math.floor(sp.s0 / STEP));
+      const i1 = Math.min(N - 1, Math.ceil(sp.s1 / STEP));
+      if (i1 - i0 < 2) return;
+      const a = base[i0];
+      const b = base[i1];
+      for (let i = i0; i <= i1; i++) {
+        const v = a + ((b - a) * (i - i0)) / (i1 - i0);
+        base[i] = floorOnly ? Math.max(base[i], v) : v;
+      }
+    };
+    if (!road) {
+      for (const t of this.tunnels) line(t, false);
+      for (const b of this.bridges) line(b, true);
+    }
+    // real lines are engineered to a ruling gradient: cap the slope (cuttings and
+    // embankments absorb the rest) so terrain noise never produces impossible climbs
+    const maxGrade = road ? 0.16 : route.mode === 'tram' || route.mode === 'light_rail' ? 0.09 : route.mode === 'monorail' ? 0.07 : 0.075;
+    const dz = maxGrade * STEP;
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 1; i < N; i++) base[i] = Math.min(base[i - 1] + dz, Math.max(base[i - 1] - dz, base[i]));
+      for (let i = N - 2; i >= 0; i--) base[i] = Math.min(base[i + 1] + dz, Math.max(base[i + 1] - dz, base[i]));
+    }
+    // structure on top: viaducts and monorail beams
+    const off = new Float32Array(N);
     const H = 6.5;
     for (let i = 0; i < N; i++) {
       const s = i * STEP;
       const inT = this.tunnels.some((t) => s >= t.s0 && s <= t.s1);
       const inB = this.bridges.some((b) => s >= b.s0 && s <= b.s1);
-      this.elev[i] = !inT && (profile.elevated || inB) ? H : 0;
+      off[i] = !inT && (profile.elevated || inB) ? H : 0;
     }
     const g = 0.035 * STEP;
-    for (let i = 1; i < N; i++) this.elev[i] = Math.max(this.elev[i], this.elev[i - 1] - g);
-    for (let i = N - 2; i >= 0; i--) this.elev[i] = Math.max(this.elev[i], this.elev[i + 1] - g);
+    for (let i = 1; i < N; i++) off[i] = Math.max(off[i], off[i - 1] - g);
+    for (let i = N - 2; i >= 0; i--) off[i] = Math.max(off[i], off[i + 1] - g);
+    this.elev = new Float32Array(N);
+    for (let i = 0; i < N; i++) this.elev[i] = base[i] + off[i];
+  }
+
+  /** Raw terrain height under the line (for pillars, kerbs, people). */
+  groundAt(s: number): number {
+    const f = s / STEP;
+    const i = Math.floor(f);
+    if (i < 0) return this.ground[0];
+    if (i >= this.ground.length - 1) return this.ground[this.ground.length - 1];
+    const t = f - i;
+    return this.ground[i] * (1 - t) + this.ground[i + 1] * t;
+  }
+
+  /** Track gradient (rise over run) at s. */
+  gradeAt(s: number): number {
+    return (this.elevationAt(s + 15) - this.elevationAt(s - 15)) / 30;
   }
 
   private segIdx(s: number): number {

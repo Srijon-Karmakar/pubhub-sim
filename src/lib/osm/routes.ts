@@ -25,7 +25,7 @@ function queryFor(kind: 'rail' | 'bus', bbox: City['bbox']): string {
   if (kind === 'rail') {
     return `[out:json][timeout:60][bbox:${bb}];
 (way[railway~"^(rail|subway|light_rail|tram|monorail|narrow_gauge|funicular|preserved)$"];way[route=ferry];)->.r;
-rel(bw.r)[type=route][route~"^(subway|train|light_rail|tram|monorail|ferry)$"];
+rel(bw.r)[type=route][route~"^(subway|train|light_rail|tram|monorail|ferry|railway)$"];
 out tags;`;
   }
   return `[out:json][timeout:90][bbox:${bb}];
@@ -37,11 +37,23 @@ out tags;`;
 const COACH = /\b(flix\w*|eurolines|blablabus|megabus|greyhound|ouibus|regiojet|fernbus|alsa)\b/i;
 const LONG_RAIL = /\b(ICE|IC|EC|TGV|Eurostar|Thalys|AVE|Frecciarossa|Railjet|Nightjet|Shinkansen|Rajdhani|Shatabdi|Duronto|Vande Bharat|Amtrak|Intercity|InterCity|EuroCity)\b/;
 
+function growBbox([w, s, e, n]: City['bbox'], k: number): City['bbox'] {
+  const cx = (w + e) / 2;
+  const cy = (s + n) / 2;
+  const hw = ((e - w) / 2) * k;
+  const hh = ((n - s) / 2) * k;
+  return [cx - hw, cy - hh, cx + hw, cy + hh];
+}
+
 function toRefs(elements: { id: number; tags?: Record<string, string> }[]): RouteRef[] {
   const refs: RouteRef[] = [];
   for (const el of elements) {
     const t = el.tags ?? {};
-    const mode = t.route as Mode;
+    // railway-line relations (the track itself) are drivable as trains: many cities map
+    // their suburban corridors this way without separate passenger-service routes
+    const infra = t.route === 'railway';
+    if (infra && (!t.name || /freight|goods|siding|yard|chord/i.test(t.name) || t.usage === 'freight' || t.usage === 'industrial')) continue;
+    const mode = (infra ? 'train' : t.route) as Mode;
     if (!MODES.includes(mode)) continue;
     if (t.disused === 'yes' || t['disused:route'] || t.state === 'proposed') continue;
     const blob = `${t.name ?? ''} ${t.network ?? ''} ${t.operator ?? ''} ${t.brand ?? ''}`;
@@ -61,6 +73,7 @@ function toRefs(elements: { id: number; tags?: Record<string, string> }[]): Rout
       network: t.network,
       operator: t.operator,
       longDistance: longDistance || undefined,
+      railLine: infra || undefined,
     });
   }
   return refs;
@@ -73,14 +86,16 @@ export async function fetchRoutesKind(
   signal?: AbortSignal,
   force = false,
 ): Promise<RouteRef[]> {
-  const key = `routes:v5:${kind}:${city.bbox.map((v) => v.toFixed(3)).join(',')}`;
+  // trains serve the whole metro region, so search a wider area for rail
+  const bbox = kind === 'rail' ? growBbox(city.bbox, 1.8) : city.bbox;
+  const key = `routes:v7:${kind}:${bbox.map((v) => v.toFixed(3)).join(',')}`;
   if (!force) {
     onProgress?.({ stage: 'cache' });
     const cached = await cacheGet<RouteRef[]>(key, 7 * DAY);
     if (cached) return cached;
   }
   onProgress?.({ stage: 'query' });
-  const res = await overpass(queryFor(kind, city.bbox), {
+  const res = await overpass(queryFor(kind, bbox), {
     timeoutMs: kind === 'rail' ? 45000 : 75000,
     signal,
     onAttempt: (host, attempt) => onProgress?.({ stage: 'query', host, attempt }),
@@ -156,6 +171,7 @@ export function groupLines(refs: RouteRef[]): Line[] {
         textColour: readableText(colour),
         network: r.network,
         longDistance: r.longDistance,
+        railLine: r.railLine,
         variants: [],
       };
       map.set(key, line);
@@ -172,7 +188,9 @@ export function groupLines(refs: RouteRef[]): Line[] {
     const ma = MODE_ORDER.indexOf(a.mode);
     const mb = MODE_ORDER.indexOf(b.mode);
     if (ma !== mb) return ma - mb;
-    if (!!a.longDistance !== !!b.longDistance) return a.longDistance ? 1 : -1;
+    // passenger services first, then whole railway lines, then long-distance trains
+    const rank = (l: Line) => (l.longDistance ? 2 : l.railLine ? 1 : 0);
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
     return collator.compare(a.ref, b.ref);
   });
   return lines;

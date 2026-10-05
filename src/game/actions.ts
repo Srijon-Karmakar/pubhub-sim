@@ -4,6 +4,9 @@ import { localHour, startInstant } from '../lib/env/sun';
 import { fetchWeather } from '../lib/env/weather';
 import { NetError } from '../lib/osm/http';
 import { fetchRoute } from '../lib/osm/routeGeometry';
+import { fetchStationInfra } from '../lib/osm/stationInfra';
+import { loadGroundProfile } from '../lib/env/dem';
+import { cacheSet } from '../lib/osm/cache';
 import { fetchRoutesKind, groupLines, type CityRoutesProgress } from '../lib/osm/routes';
 import type { RouteRef } from '../types';
 import { driveSideFor, POPULAR, popularToCity } from '../lib/osm/search';
@@ -172,7 +175,7 @@ export async function openCity(city: City, force = false) {
   let rail: RouteRef[] | null = null;
   let bus: RouteRef[] | null = null;
   let railErr: unknown = null;
-  setApp({ busState: 'loading' });
+  setApp({ busState: 'loading', railState: 'loading' });
   const publish = () => {
     if (ctrl.signal.aborted) return;
     const refs = [...(rail ?? []), ...(bus ?? [])];
@@ -182,10 +185,11 @@ export async function openCity(city: City, force = false) {
     .then((r) => {
       rail = r;
       publish();
-      if (!ctrl.signal.aborted) setApp({ cityState: 'ready' });
+      if (!ctrl.signal.aborted) setApp({ cityState: 'ready', railState: 'ready' });
     })
     .catch((e) => {
       railErr = e;
+      if ((e as Error).name !== 'AbortError' && !ctrl.signal.aborted) setApp({ railState: 'error' });
     });
   const busP = fetchRoutesKind('bus', city, undefined, ctrl.signal, force)
     .then((r) => {
@@ -218,6 +222,20 @@ export async function retryBuses() {
     setApp({ lines: groupLines([...rail, ...bus]), busState: 'ready' });
   } catch {
     setApp({ busState: 'error' });
+  }
+}
+
+export async function retryRail() {
+  const city = useApp.getState().city;
+  if (!city) return;
+  setApp({ railState: 'loading' });
+  try {
+    const rail = await fetchRoutesKind('rail', city, undefined, undefined, true);
+    if (useApp.getState().city?.id !== city.id) return;
+    const bus = useApp.getState().lines.filter((l) => l.group === 'bus').flatMap((l) => l.variants);
+    setApp({ lines: groupLines([...rail, ...bus]), railState: 'ready', cityState: 'ready' });
+  } catch {
+    setApp({ railState: 'error' });
   }
 }
 
@@ -262,6 +280,15 @@ async function loadVariant(line: Line, idx: number) {
     const endIdx = defaultEnd(route);
     setApp({ route, routeState: 'ready', run: { ...useApp.getState().run, startIdx: 0, endIdx } });
     mapCtl.showRoute(route, 0, endIdx);
+    void ensureGround(route);
+    // station platforms/tracks stream in afterwards; the 3D scene picks them up when ready
+    if (PROFILES[route.mode].rail && !route.infra) {
+      void fetchStationInfra(route, ctrl.signal)
+        .then((infra) => {
+          if (infra) route.infra = infra;
+        })
+        .catch(() => {});
+    }
     fitCurrent();
     previewConditions();
   } catch (e) {
@@ -315,8 +342,30 @@ export function previewConditions() {
   applyEnv(t, city.lat, city.lon, wk);
 }
 
+// ------------------------------------------------------------ terrain
+const groundLoads = new Map<number, Promise<void>>();
+
+/** Loads the terrain profile under a route once (cached); safe to call repeatedly. */
+export function ensureGround(route: RouteData): Promise<void> {
+  if (route.ground) return Promise.resolve();
+  let p = groundLoads.get(route.id);
+  if (!p) {
+    p = loadGroundProfile(route)
+      .then((g) => {
+        if (g) {
+          route.ground = g;
+          void cacheSet(`route:v6:${route.id}`, route).catch(() => {});
+        }
+      })
+      .catch(() => {})
+      .finally(() => groundLoads.delete(route.id));
+    groundLoads.set(route.id, p);
+  }
+  return p;
+}
+
 // ------------------------------------------------------------ drive
-export function startRun() {
+export async function startRun() {
   const s = useApp.getState();
   const { route, run, city, line } = s;
   if (!route || !city || !line) return;
@@ -324,6 +373,19 @@ export function startRun() {
   audio.init();
   audio.setEnabled(settings.sound, settings.volume);
   audio.announcements = settings.announcements;
+  try {
+    if (matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) {
+      void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+  // the track profile must match the 3D ground before the vehicle is placed on it
+  if (settings.terrain && settings.quality !== 'low' && !route.ground) {
+    setApp({ loadingMsg: 'Loading terrain…' });
+    await Promise.race([ensureGround(route), new Promise((ok) => setTimeout(ok, 8000))]);
+    if (useApp.getState().route !== route) return;
+  }
   const off = s.weather?.utcOffset ?? Math.round(city.lon / 15) * 3600;
   const wk = run.weather === 'live' ? s.weather?.kind ?? 'clear' : run.weather;
   const clock = startInstant(run.time, city.lat, city.lon, off);
@@ -341,13 +403,6 @@ export function startRun() {
   runner.start(engine, { city, line, startIdx: run.startIdx, endIdx: run.endIdx, utcOffset: off });
   setApp({ screen: 'drive', result: null });
   pushHistory('drive');
-  try {
-    if (matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) {
-      void document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
-    }
-  } catch {
-    /* ignore */
-  }
 }
 
 export function restartRun() {

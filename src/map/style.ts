@@ -1,6 +1,7 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import type { Palette } from '../lib/env/palette';
 import { mixHex } from '../lib/color';
+import { DEM_URL, DEM_ZOOM } from '../lib/env/dem';
 
 const SRC = 'omt';
 const NAME: ExpressionSpecification = ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
@@ -91,6 +92,19 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
       source: SRC,
       'source-layer': 'park',
       paint: { 'fill-color': p.park, 'fill-opacity': 0.85 },
+    },
+    {
+      // relief shading from the terrain model: valleys and ridges read even from above
+      id: 'hillshade',
+      type: 'hillshade',
+      source: 'dem-hs',
+      paint: {
+        'hillshade-shadow-color': mixHex(p.bg, '#000000', 0.5),
+        'hillshade-highlight-color': mixHex(p.bg, '#ffffff', 0.45),
+        'hillshade-accent-color': mixHex(p.bg, '#000000', 0.3),
+        'hillshade-exaggeration': 0.45,
+        'hillshade-illumination-direction': 315,
+      },
     },
     {
       id: 'water',
@@ -250,6 +264,9 @@ export function buildStyle(p: Palette): StyleSpecification {
         attribution:
           '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
       },
+      // terrain model (3D ground) and a separate copy for hillshading, as MapLibre recommends
+      dem: { type: 'raster-dem', tiles: [DEM_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium', attribution: 'Terrain: Mapzen / AWS Terrain Tiles' },
+      'dem-hs': { type: 'raster-dem', tiles: [DEM_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium' },
     },
     sky: skyFor(p),
     light: { anchor: 'map', color: p.light, intensity: p.lightIntensity, position: [1.4, 210, 40] },

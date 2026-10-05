@@ -1,6 +1,6 @@
 import type { Line, RouteData, RouteRef, Stop, WaySpan } from '../../types';
 import { normalizeColour, readableText } from '../color';
-import { haversine, RoutePath, toENU } from '../geo';
+import { fromENU, haversine, RoutePath, toENU } from '../geo';
 import { cacheGet, cacheSet, DAY } from './cache';
 import { fetchJson, overpass, type OverpassElement, type OverpassMember } from './http';
 
@@ -170,6 +170,134 @@ function chainGreedy(ways: LL[][], startHint?: LL): { pts: P[]; gap: number } {
   return { pts, gap };
 }
 
+/** Typical minimum curve radius per mode (m): OSM corners are rounded to at most this. */
+const CURVE_R: Record<string, number> = {
+  train: 320,
+  subway: 220,
+  monorail: 160,
+  light_rail: 60,
+  tram: 28,
+  bus: 16,
+  trolleybus: 18,
+  ferry: 180,
+};
+
+/**
+ * Rounds every corner of the polyline into an arc (quadratic Bézier through the
+ * corner) so vehicles follow smooth curves instead of snapping at OSM vertices.
+ * Each arc is clamped to 45% of the adjacent segments so neighbours never overlap.
+ */
+function filletPath(pts: P[], radius: number): P[] {
+  if (pts.length < 3) return pts;
+  const out: P[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const A = pts[i - 1];
+    const B = pts[i];
+    const Cc = pts[i + 1];
+    const [ax, ay] = toENU(A.lat, A.lon, B.lat, B.lon);
+    const [cx, cy] = toENU(Cc.lat, Cc.lon, B.lat, B.lon);
+    const la = Math.hypot(ax, ay);
+    const lc = Math.hypot(cx, cy);
+    if (la < 0.5 || lc < 0.5) {
+      out.push(B);
+      continue;
+    }
+    // unit vectors from B towards A and towards C
+    const u1x = ax / la;
+    const u1y = ay / la;
+    const u2x = cx / lc;
+    const u2y = cy / lc;
+    const cosInner = Math.max(-1, Math.min(1, u1x * u2x + u1y * u2y));
+    const turn = Math.PI - Math.acos(cosInner);
+    if (turn < (2 * Math.PI) / 180 || turn > (170 * Math.PI) / 180) {
+      out.push(B);
+      continue;
+    }
+    const t = Math.min(radius * Math.tan(turn / 2), la * 0.45, lc * 0.45);
+    const p1: [number, number] = [u1x * t, u1y * t];
+    const p2: [number, number] = [u2x * t, u2y * t];
+    const n = Math.max(2, Math.min(24, Math.ceil(turn / ((6 * Math.PI) / 180))));
+    for (let k = 0; k <= n; k++) {
+      const q = k / n;
+      const w0 = (1 - q) * (1 - q);
+      const w2 = q * q;
+      const x = w0 * p1[0] + w2 * p2[0];
+      const y = w0 * p1[1] + w2 * p2[1];
+      const [lat, lon] = fromENU(x, y, B.lat, B.lon);
+      out.push({ lat, lon, w: B.w });
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/** Smoothing strength per mode (Gaussian sigma, metres along the line). */
+const SMOOTH_SIGMA: Record<string, number> = {
+  train: 45,
+  subway: 34,
+  monorail: 28,
+  light_rail: 14,
+  tram: 8,
+  bus: 4,
+  trolleybus: 4,
+  ferry: 40,
+};
+
+/**
+ * Resamples the line at an even spacing, then Gaussian-smooths it. Unlike corner
+ * rounding this does not depend on how OSM happened to place its nodes, so long
+ * straight ways meeting at a kink still turn into a proper curve. The kernel
+ * narrows towards both ends so terminals stay exactly where they are.
+ */
+function smoothPath(pts: P[], sigma: number): P[] {
+  if (pts.length < 3 || sigma <= 0) return pts;
+  const total = pathLength(pts);
+  const step = Math.max(2, Math.min(sigma / 3, total / 60000));
+  // resample
+  const rs: P[] = [pts[0]];
+  let carry = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const seg = dist(a, b);
+    if (seg < 1e-6) continue;
+    let d = step - carry;
+    while (d <= seg) {
+      const t = d / seg;
+      rs.push({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t, w: b.w });
+      d += step;
+    }
+    carry = seg - (d - step);
+  }
+  const last = pts[pts.length - 1];
+  if (dist(rs[rs.length - 1], last) > step * 0.3) rs.push(last);
+  const n = rs.length;
+  const sig = sigma / step;
+  const out: P[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    // shrink the kernel near the ends so the endpoints stay fixed
+    const local = Math.min(sig, i / 3, (n - 1 - i) / 3);
+    if (local < 0.5) {
+      out[i] = rs[i];
+      continue;
+    }
+    const r = Math.ceil(local * 3);
+    let wsum = 0;
+    let la = 0;
+    let lo = 0;
+    for (let k = -r; k <= r; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      const w = Math.exp((-k * k) / (2 * local * local));
+      wsum += w;
+      la += rs[j].lat * w;
+      lo += rs[j].lon * w;
+    }
+    out[i] = { lat: la / wsum, lon: lo / wsum, w: rs[i].w };
+  }
+  return out;
+}
+
 function pathLength(pts: LL[]): number {
   let L = 0;
   for (let i = 1; i < pts.length; i++) L += dist(pts[i - 1], pts[i]);
@@ -220,7 +348,7 @@ interface OsmApiElement {
  * "out geom" form the parser expects.
  */
 async function fetchFromOsmApi(id: number, signal?: AbortSignal): Promise<OverpassElement[]> {
-  const res = await fetchJson<{ elements: OsmApiElement[] }>(`https://api.openstreetmap.org/api/0.6/relation/${id}/full.json`, { signal }, 15000);
+  const res = await fetchJson<{ elements: OsmApiElement[] }>(`https://api.openstreetmap.org/api/0.6/relation/${id}/full.json`, { signal }, 30000);
   const nodes = new Map<number, LL>();
   const ways = new Map<number, number[]>();
   let rel: OsmApiElement | undefined;
@@ -237,7 +365,7 @@ async function fetchFromOsmApi(id: number, signal?: AbortSignal): Promise<Overpa
   });
   return [
     { type: 'relation', id, tags: rel.tags, members },
-    ...res.elements.filter((e) => e.type !== 'relation' && e.tags).map((e) => ({ type: e.type, id: e.id, tags: e.tags })),
+    ...res.elements.filter((e) => e.type !== 'relation' && e.tags).map((e) => ({ type: e.type, id: e.id, tags: e.tags, lat: e.lat, lon: e.lon })),
   ];
 }
 
@@ -248,7 +376,7 @@ export async function fetchRoute(
   signal?: AbortSignal,
   onAttempt?: (host: string) => void,
 ): Promise<RouteData> {
-  const key = `route:v4:${ref.id}`;
+  const key = `route:v6:${ref.id}`;
   const cached = await cacheGet<RouteData>(key, 30 * DAY);
   if (cached) return { ...cached, colour: line.colour, textColour: line.textColour, driveSide };
 
@@ -263,12 +391,47 @@ export async function fetchRoute(
 rel(${ref.id})->.r;
 .r out geom;
 (node(r.r);way(r.r););
-out tags;`;
+out tags;
+way(r.r)->.w;
+node(w.w)[~"^(railway|public_transport|highway|amenity)$"~"^(station|halt|stop|stop_position|bus_stop|ferry_terminal)$"];
+out;`;
     elements = (await overpass(q, { timeoutMs: 35000, staggerMs: 4000, signal, onAttempt: (h) => onAttempt?.(h) })).elements;
   }
-  const data = await parseRoute(elements, ref, line, driveSide);
+  let data = await parseRoute(elements, ref, line, driveSide);
+  if (data.synthStops) {
+    const extra = await stationsAlong(data, signal).catch(() => []);
+    if (extra.length >= 2) {
+      const better = await parseRoute(elements, ref, line, driveSide, extra).catch(() => null);
+      if (better && !better.synthStops) data = better;
+    }
+  }
   await cacheSet(key, data);
   return data;
+}
+
+/** Stations within a short distance of the route line (for routes whose stops aren't members). */
+async function stationsAlong(route: RouteData, signal?: AbortSignal): Promise<Candidate[]> {
+  const path = new RoutePath(route.lat, route.lon);
+  const road = route.mode === 'bus' || route.mode === 'trolleybus';
+  const step = Math.max(300, path.length / 120);
+  const coords: string[] = [];
+  for (let d = 0; d <= path.length; d += step) {
+    const [la, lo] = path.pointAt(d);
+    coords.push(`${la.toFixed(5)},${lo.toFixed(5)}`);
+  }
+  const [la, lo] = path.pointAt(path.length);
+  coords.push(`${la.toFixed(5)},${lo.toFixed(5)}`);
+  const around = `around:${road ? 35 : route.mode === 'ferry' ? 250 : 150},${coords.join(',')}`;
+  const filters = road
+    ? [`node(${around})[highway=bus_stop];`, `node(${around})[public_transport=platform][bus=yes];`]
+    : route.mode === 'ferry'
+      ? [`node(${around})[amenity=ferry_terminal];`, `node(${around})[public_transport=station][ferry=yes];`]
+      : [`node(${around})[railway~"^(station|halt)$"];`, `node(${around})[public_transport=station];`];
+  const q = `[out:json][timeout:25];(${filters.join('')});out;`;
+  const res = await overpass(q, { timeoutMs: 25000, staggerMs: 4000, signal });
+  return res.elements
+    .filter((e) => e.type === 'node' && e.lat != null && e.lon != null && e.tags?.name)
+    .map((e) => ({ id: 'n' + e.id, lat: e.lat!, lon: e.lon!, name: displayName(e.tags) }));
 }
 
 export async function parseRoute(
@@ -276,6 +439,7 @@ export async function parseRoute(
   ref: RouteRef,
   line: Line,
   driveSide: -1 | 1,
+  extraStops?: Candidate[],
 ): Promise<RouteData> {
   const rel = elements.find((e) => e.type === 'relation' && e.id === ref.id);
   if (!rel?.members) throw new Error('This route could not be found in OpenStreetMap.');
@@ -335,6 +499,28 @@ export async function parseRoute(
       })
       .map((m) => ({ id: 'n' + m.ref, lat: m.lat!, lon: m.lon!, name: displayName(tags.get('n' + m.ref)) }));
   }
+  // stops not listed as members: stations that sit on the route's own tracks / roads
+  let unordered = false;
+  if (cands.length < 2) {
+    const road = ref.mode === 'bus' || ref.mode === 'trolleybus';
+    const onLine = elements
+      .filter((e) => e.type === 'node' && e.lat != null && e.lon != null && e.tags?.name)
+      .filter((e) => {
+        const t = e.tags!;
+        if (ref.mode === 'ferry') return t.amenity === 'ferry_terminal' || t.public_transport === 'stop_position';
+        if (road) return t.highway === 'bus_stop' || (t.public_transport === 'stop_position' && t.bus === 'yes');
+        return /^(station|halt|stop)$/.test(t.railway ?? '') || (t.public_transport === 'stop_position' && t.bus !== 'yes');
+      })
+      .map((e) => ({ id: 'n' + e.id, lat: e.lat!, lon: e.lon!, name: displayName(e.tags) }));
+    if (onLine.length >= 2) {
+      cands = onLine;
+      unordered = true;
+    }
+  }
+  if (cands.length < 2 && extraStops && extraStops.length >= 2) {
+    cands = extraStops;
+    unordered = true;
+  }
 
   // ---- geometry -------------------------------------------------------
   let pts: P[] = [];
@@ -360,6 +546,9 @@ export async function parseRoute(
     if (!clean.length || dist(clean[clean.length - 1], p) > 0.3) clean.push(p);
   }
   if (clean.length < 2) throw new Error('This route has no usable geometry in OpenStreetMap yet.');
+  const smoothed = smoothPath(filletPath(clean, CURVE_R[ref.mode] ?? 60), SMOOTH_SIGMA[ref.mode] ?? 15);
+  clean.length = 0;
+  for (const p of smoothed) if (!clean.length || dist(clean[clean.length - 1], p) > 0.3) clean.push(p);
 
   const path = new RoutePath(
     clean.map((p) => p.lat),
@@ -389,6 +578,17 @@ export async function parseRoute(
   // ---- stops -----------------------------------------------------------
   const stops: Stop[] = [];
   let prevS = -Infinity;
+  if (unordered) {
+    // stations found on/near the line: order them along the path, drop duplicates by name
+    const proj = cands.map((c) => ({ c, ...path.project(c.lat, c.lon) })).filter((x) => x.d < 350).sort((a, b) => a.s - b.s);
+    const seen: { name: string; s: number }[] = [];
+    cands = [];
+    for (const x of proj) {
+      if (x.c.name && seen.some((q) => q.name === x.c.name && Math.abs(q.s - x.s) < 600)) continue;
+      seen.push({ name: x.c.name ?? '', s: x.s });
+      cands.push(x.c);
+    }
+  }
   for (const c of cands) {
     const pr = path.project(c.lat, c.lon, prevS === -Infinity ? -Infinity : prevS - 25, 0.01);
     if (!isFinite(pr.d) || pr.d > 350) continue;

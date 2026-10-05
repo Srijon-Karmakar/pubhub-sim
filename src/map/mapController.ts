@@ -153,6 +153,29 @@ class MapController {
 
   private routeDark: boolean | null = null;
 
+  private terrainOn = false;
+
+  /** Real 3D ground from the terrain model; the game's track profile uses the same data. */
+  setTerrain(on: boolean) {
+    const map = this.map;
+    if (!map) return;
+    this.terrainOn = on;
+    const apply = () => {
+      try {
+        map.setTerrain(on ? { source: 'dem', exaggeration: 1 } : null);
+        if (map.getLayer('hillshade')) map.setLayoutProperty('hillshade', 'visibility', on ? 'visible' : 'none');
+      } catch (e) {
+        console.warn('terrain unavailable', e);
+      }
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once('load', apply);
+  }
+
+  get terrain() {
+    return this.terrainOn;
+  }
+
   /** Battery saver: 1x pixel ratio and flat buildings. */
   setQuality(q: 'high' | 'low') {
     const map = this.map;
@@ -515,12 +538,31 @@ class MapController {
     const h = map.getContainer().clientHeight;
     const isBus = !p.rail && p.sound !== 'ship';
     const lookAhead = mode === 'top' ? 25 : 18;
-    const targetB = tr.path.headingAt(engine.s + lookAhead, 14) * DEG;
-    const k = 1 - Math.exp(-dt * (mode === 'cab' ? 7 : 2.6));
+    // road vehicles are free to steer: the camera follows the vehicle itself, not the route
+    const pose = engine.car ? engine.carPose() : null;
+    const offset = (lat: number, lon: number, hd: number, back: number, side = 0): [number, number] => {
+      const dy = -Math.cos(hd) * back - Math.sin(hd) * side;
+      const dx = -Math.sin(hd) * back + Math.cos(hd) * side;
+      return [lat + dy / 111320, lon + dx / (111320 * Math.cos((lat * Math.PI) / 180))];
+    };
+    const targetB = (pose ? pose.heading : tr.path.headingAt(engine.s + lookAhead, 14)) * DEG;
+    const k = 1 - Math.exp(-dt * (mode === 'cab' ? 7 : pose ? 4 : 2.6));
     this.camBearing = this.camBearing + angleDiff(this.camBearing / DEG, targetB / DEG) * DEG * k;
     let target: CamSnap;
     let padding = { top: 0, bottom: 0, left: 0, right: 0 };
-    if (mode === 'cab') {
+    if (pose && mode === 'cab') {
+      const [camLat, camLon] = offset(pose.lat, pose.lon, pose.heading, 2.2, -engine.route.driveSide * 0.7);
+      const opts = map.calculateCameraOptionsFromCameraLngLatAltRotation([camLon, camLat], tr.elevationAt(engine.s) + 2.7, this.camBearing, 80);
+      const c = LngLat.convert(opts.center!);
+      target = { lng: c.lng, lat: c.lat, zoom: opts.zoom!, pitch: opts.pitch ?? 80, bearing: this.camBearing };
+    } else if (pose) {
+      const [la, lo] = offset(pose.lat, pose.lon, pose.heading, mode === 'top' ? 4 : 6);
+      const zoom = (mode === 'top' ? 18.4 : 19.2) + this.zoomOffset;
+      target = mode === 'top'
+        ? { lng: lo, lat: la, zoom, pitch: 0, bearing: headingUp ? this.camBearing : 0 }
+        : { lng: lo, lat: la, zoom, pitch: 62, bearing: this.camBearing + 12 };
+      padding = { top: h * (mode === 'top' ? 0.22 : 0.3), bottom: 0, left: 0, right: 0 };
+    } else if (mode === 'cab') {
       const s = engine.s - (isBus ? 2.2 : p.sound === 'ship' ? L * 0.35 : 1.6);
       const [la, lo] = tr.path.pointAt(s);
       // driver sits away from the kerb on road vehicles

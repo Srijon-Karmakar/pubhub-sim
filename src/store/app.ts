@@ -11,6 +11,7 @@ export interface AppState {
   cityError?: string;
   loadingMsg: string;
   busState: 'idle' | 'loading' | 'ready' | 'error';
+  railState: 'idle' | 'loading' | 'ready' | 'error';
   lines: Line[];
   weather: WeatherInfo | null;
   group: ModeGroup | 'all';
@@ -41,6 +42,7 @@ export const useApp = create<AppState>()(() => ({
   cityState: 'idle',
   loadingMsg: '',
   busState: 'idle',
+  railState: 'idle',
   lines: [],
   weather: null,
   group: 'all',

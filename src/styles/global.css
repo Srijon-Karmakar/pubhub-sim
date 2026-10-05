@@ -2,8 +2,8 @@
    PublicPort — design system
    ========================================================================== */
 :root {
-  --font: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --display: 'Space Grotesk Variable', 'Space Grotesk', var(--font);
+  --font: 'Onest Variable', 'Onest', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --display: var(--font);
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
@@ -2883,7 +2883,6 @@ input {
    Game layer: sharp chamfered controls, lime accents, snappy motion
    ========================================================================== */
 body {
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
 ::selection {
@@ -3485,5 +3484,964 @@ body {
   .app[data-screen='home'] .scrim-bottom,
   .app[data-screen='about'] .scrim-bottom {
     background: linear-gradient(90deg, color-mix(in oklab, var(--wash) 88%, transparent) 0%, color-mix(in oklab, var(--wash) 62%, transparent) 26%, transparent 48%);
+  }
+}
+
+/* ==========================================================================
+   Driving HUD v2: transparent, compact, game-style
+   White type with a dark outline reads on any map; controls are translucent.
+   ========================================================================== */
+.hud {
+  --hud-fg: #ffffff;
+  --hud-dim: rgba(255, 255, 255, 0.72);
+  --hud-ghost: rgba(8, 10, 14, 0.34);
+  --hud-ghost-2: rgba(8, 10, 14, 0.5);
+  --hud-line: rgba(255, 255, 255, 0.16);
+  --hud-shadow: 0 1px 1px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.55), 0 0 14px rgba(0, 0, 0, 0.35);
+  --edge: 12px;
+  color: var(--hud-fg);
+}
+
+.hud .glass,
+.hud .glass-strong {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.hud .next-card::before,
+.hud .approach::before,
+.hud .board::before,
+.hud .score-pop::before {
+  display: none;
+}
+
+/* ---------- top strip ---------- */
+.hud .hud-top {
+  top: calc(var(--sat) + 8px);
+  left: calc(var(--sal) + var(--edge));
+  right: calc(var(--sar) + var(--edge));
+  gap: 10px;
+}
+
+.hud .next-card {
+  padding: 0;
+  gap: 6px;
+  max-width: 460px;
+  text-shadow: var(--hud-shadow);
+}
+
+.hud .next-card .row1 {
+  gap: 8px;
+}
+
+.hud .next-card .badge {
+  min-width: 30px;
+  height: 26px;
+  font-size: 13px;
+  padding: 0 6px;
+  text-shadow: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.hud .next-card .lbl {
+  font-size: 9.5px;
+  color: var(--hud-dim);
+  letter-spacing: 0.16em;
+}
+
+.hud .next-card .nm {
+  font-size: 17px;
+  color: var(--hud-fg);
+}
+
+.hud .next-card .row2 {
+  font-size: 12px;
+  color: var(--hud-dim);
+  gap: 6px;
+}
+
+.hud .delta {
+  padding: 1px 6px;
+  font-size: 11px;
+  text-shadow: none;
+  border-radius: 0;
+}
+
+.hud .delta.ok {
+  background: rgba(16, 185, 129, 0.85);
+  color: #fff;
+}
+
+.hud .delta.late {
+  background: rgba(245, 158, 11, 0.9);
+  color: #1b1300;
+}
+
+.hud .delta.vlate {
+  background: rgba(239, 68, 68, 0.9);
+  color: #fff;
+}
+
+.hud .delta.early {
+  background: rgba(59, 130, 246, 0.9);
+  color: #fff;
+}
+
+.hud .delta.free {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.hud .progress-strip {
+  height: 10px;
+  margin: 0;
+}
+
+.hud .progress-strip .track {
+  top: 4px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+
+.hud .progress-strip .sdot {
+  top: 2px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-width: 1.5px;
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.hud .progress-strip .veh {
+  top: 0;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-width: 2px;
+}
+
+.hud .side-col {
+  gap: 4px;
+  align-items: flex-end;
+  text-shadow: var(--hud-shadow);
+}
+
+.hud .side-col .icon-btn {
+  width: 36px;
+  height: 36px;
+  background: var(--hud-ghost);
+  color: var(--hud-fg);
+}
+
+.hud .clock-pill {
+  height: auto;
+  padding: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--hud-fg);
+  gap: 4px;
+}
+
+.hud .score-pill {
+  padding: 0;
+  min-width: 0;
+}
+
+.hud .score-pill small {
+  font-size: 8.5px;
+  color: var(--hud-dim);
+}
+
+.hud .score-pill b {
+  font-size: 18px;
+  color: var(--hud-fg);
+}
+
+.hud .score-pill.free b {
+  color: var(--primary);
+}
+
+.hud .streak-pill {
+  padding: 3px 7px;
+  min-width: 0;
+  text-shadow: none;
+}
+
+.hud .streak-pill small {
+  font-size: 8px;
+}
+
+.hud .streak-pill b {
+  font-size: 14px;
+}
+
+/* ---------- contextual stack ---------- */
+.hud .hud-stack {
+  top: calc(var(--sat) + 84px);
+  left: calc(var(--sal) + var(--edge));
+  right: auto;
+  width: min(330px, calc(100vw - 2 * var(--edge) - 70px));
+  gap: 6px;
+}
+
+.hud .board,
+.hud .approach,
+.hud .coach,
+.hud .banner.tunnel,
+.hud .recenter {
+  background: var(--hud-ghost);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--hud-fg);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.hud .board {
+  padding: 7px 9px 6px;
+}
+
+.hud .board-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+}
+
+.hud .board .flows {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--hud-dim);
+}
+
+.hud .board .flows span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hud .board .flows .warn {
+  color: #ffc04d;
+}
+
+.hud .board .flows .good {
+  color: #5cf0a8;
+}
+
+.hud .board .cd {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.hud .board .cd small {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud .board .cd b {
+  font-family: var(--display);
+  font-size: 17px;
+}
+
+.hud .board .cd.good small,
+.hud .board .cd.good b {
+  color: #5cf0a8;
+}
+
+.hud .board .cd.warn small,
+.hud .board .cd.warn b {
+  color: #ffc04d;
+}
+
+.hud .board .cd.info b {
+  color: #8ec5ff;
+}
+
+.hud .board-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hud-fg);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  flex: none;
+}
+
+.hud .board-btn.hot {
+  background: var(--primary);
+  color: var(--on-primary);
+  box-shadow: none;
+}
+
+.hud .board .load {
+  position: relative;
+  margin-top: 5px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 0;
+  overflow: visible;
+}
+
+.hud .board .load i {
+  border-radius: 0;
+}
+
+.hud .board .load span {
+  position: absolute;
+  right: 0;
+  top: -15px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--hud-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.hud .board-row .flows {
+  margin-right: 2px;
+}
+
+.hud .approach {
+  padding: 6px 9px 7px;
+}
+
+.hud .approach .dist {
+  font-size: 18px;
+}
+
+.hud .approach .hint {
+  font-size: 10.5px;
+}
+
+.hud .ruler {
+  height: 12px;
+  margin-top: 5px;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 0;
+}
+
+.hud .ruler .marker {
+  width: 4px;
+  margin-left: -2px;
+  top: 1px;
+  bottom: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  border-radius: 0;
+}
+
+.hud .coach {
+  padding: 7px 9px;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.hud .coach .ico {
+  width: 26px;
+  height: 26px;
+}
+
+.hud .coach .icon-btn {
+  width: 26px !important;
+  height: 26px !important;
+  color: var(--hud-fg);
+}
+
+.hud .banner {
+  padding: 5px 9px;
+  font-size: 10.5px;
+}
+
+.hud .recenter {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.hud .reverse-btn {
+  height: 34px;
+  font-size: 12px;
+  padding: 0 12px;
+}
+
+/* ---------- action buttons ---------- */
+.hud .actions {
+  left: calc(var(--sal) + var(--edge));
+  bottom: calc(var(--sab) + 128px);
+  gap: 6px;
+}
+
+.hud .act {
+  width: 44px;
+  height: 44px;
+  background: var(--hud-ghost);
+  color: var(--hud-fg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.hud .act svg {
+  width: 19px;
+  height: 19px;
+  margin-top: -6px;
+}
+
+.hud .act small {
+  bottom: 3px;
+  font-size: 7.5px;
+  opacity: 0.85;
+}
+
+.hud .act.pulse {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.hud .act.on {
+  background: rgba(255, 255, 255, 0.9);
+  color: #0b0f00;
+  box-shadow: none;
+}
+
+.hud .act.warn {
+  background: rgba(245, 158, 11, 0.9);
+}
+
+/* ---------- speed cluster ---------- */
+.hud .speedo-wrap {
+  left: calc(var(--sal) + var(--edge));
+  bottom: calc(var(--sab) + var(--edge));
+  gap: 6px;
+}
+
+.hud .speedo {
+  width: 104px;
+  height: 104px;
+  clip-path: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(8, 10, 14, 0.5) 0%, rgba(8, 10, 14, 0.32) 62%, transparent 72%);
+  text-shadow: var(--hud-shadow);
+}
+
+.hud .speedo svg {
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+}
+
+.hud .speedo svg circle:first-child {
+  stroke: rgba(255, 255, 255, 0.22);
+}
+
+.hud .speedo .v b {
+  font-size: 32px;
+  color: var(--hud-fg);
+}
+
+.hud .speedo .v small {
+  font-size: 9.5px;
+  color: var(--hud-dim);
+}
+
+.hud .speedo .acc {
+  bottom: 9px;
+  font-size: 9px;
+}
+
+.hud .limit-stack {
+  gap: 4px;
+}
+
+.hud .limit-sign {
+  width: 40px;
+  height: 40px;
+  border-width: 4.5px;
+  font-size: 15px;
+}
+
+.hud .limit-next {
+  padding: 2px 5px 2px 2px;
+  font-size: 10px;
+  background: var(--hud-ghost);
+  color: var(--hud-fg);
+  clip-path: none;
+}
+
+.hud .limit-next .mini {
+  width: 22px;
+  height: 22px;
+  border-width: 2.5px;
+  font-size: 9.5px;
+}
+
+.hud .signal-lamp {
+  margin-bottom: 0;
+  padding: 3px 7px 3px 3px;
+  gap: 5px;
+  background: var(--hud-ghost);
+  box-shadow: none;
+  backdrop-filter: none;
+  clip-path: none;
+}
+
+.hud .signal-lamp .head {
+  padding: 3px;
+  gap: 3px;
+}
+
+.hud .signal-lamp .head i {
+  width: 8px;
+  height: 8px;
+}
+
+.hud .signal-lamp .txt b {
+  font-size: 10.5px;
+}
+
+.hud .signal-lamp .txt small {
+  font-size: 10px;
+  color: var(--hud-dim);
+}
+
+.hud .no-limit-sign {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 0;
+}
+
+/* ---------- lever ---------- */
+.hud .lever {
+  right: calc(var(--sar) + var(--edge));
+  bottom: calc(var(--sab) + var(--edge));
+  width: 58px;
+  height: min(40vh, 320px);
+  padding: 4px;
+  background: var(--hud-ghost);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.hud .lever-track {
+  background: transparent;
+}
+
+.hud .lever-zone.power {
+  background: linear-gradient(180deg, rgba(195, 255, 0, 0.42), rgba(195, 255, 0, 0.06));
+}
+
+.hud .lever-zone.brake {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.06), rgba(239, 68, 68, 0.38));
+}
+
+.hud .lever-tick::before {
+  border-top-color: rgba(255, 255, 255, 0.18);
+}
+
+.hud .lever-tick.n::before {
+  border-top: 2px solid rgba(255, 255, 255, 0.55);
+}
+
+.hud .lever-handle {
+  left: 2px;
+  right: 2px;
+  height: 34px;
+  margin-top: -17px;
+  font-size: 13px;
+}
+
+.hud .lever-handle::after {
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 2px;
+}
+
+/* ---------- toasts ---------- */
+.hud .toasts {
+  top: 40%;
+}
+
+.hud .score-pop {
+  min-width: 0;
+  padding: 8px 14px;
+  background: var(--hud-ghost-2);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 0;
+  box-shadow: none;
+}
+
+.hud .score-pop .lab {
+  font-size: 20px;
+  color: #fff;
+}
+
+.hud .score-pop .sub {
+  font-size: 11px;
+  color: var(--hud-dim);
+}
+
+.hud .score-pop .pts {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 0;
+}
+
+.hud .msg-toast {
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--hud-ghost-2);
+  color: #fff;
+  border: 0;
+  box-shadow: none;
+}
+
+.hud .msg-toast.warn {
+  color: #ffc04d;
+}
+
+.hud .msg-toast.bad {
+  color: #ff7a7a;
+}
+
+/* attribution sits out of the way in the corner */
+.app[data-screen='drive'] .maplibregl-ctrl-bottom-right {
+  top: calc(var(--sat) + 120px);
+  opacity: 0.55;
+}
+
+/* ---------- landscape phones ---------- */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud .lever {
+    height: calc(100dvh - var(--sat) - var(--sab) - 2 * var(--edge));
+    width: 54px;
+  }
+  .hud .hud-top {
+    right: calc(var(--sar) + 80px);
+  }
+  .hud .hud-stack {
+    top: calc(var(--sat) + 80px);
+    width: 300px;
+  }
+  .hud .actions {
+    bottom: calc(var(--sab) + var(--edge));
+    left: calc(var(--sal) + 190px);
+    flex-direction: row;
+  }
+  .hud .speedo {
+    width: 96px;
+    height: 96px;
+  }
+}
+
+@media (min-width: 700px) and (min-height: 520px) {
+  .hud .speedo {
+    width: 128px;
+    height: 128px;
+  }
+  .hud .speedo .v b {
+    font-size: 38px;
+  }
+  .hud .lever {
+    width: 66px;
+    height: min(46vh, 380px);
+  }
+  .hud .act {
+    width: 50px;
+    height: 50px;
+  }
+  .hud .actions {
+    bottom: calc(var(--sab) + 156px);
+  }
+}
+
+.hud .coach {
+  padding: 5px 7px;
+  font-size: 11px;
+  line-height: 1.35;
+  gap: 7px;
+}
+
+.hud .coach .ico {
+  width: 22px;
+  height: 22px;
+}
+
+.hud .coach .ico svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hud .coach .icon-btn {
+  width: 22px !important;
+  height: 22px !important;
+}
+
+.app[data-screen='drive'] .maplibregl-ctrl-bottom-right {
+  top: calc(var(--sat) + 172px);
+}
+
+/* HUD always uses the bright lime accent, whatever the UI theme */
+.hud {
+  --accent: #c3ff00;
+}
+
+/* ---------------------------------------------------------------- road driving controls */
+.hud .car-left {
+  position: absolute;
+  left: calc(var(--sal) + var(--edge));
+  bottom: calc(var(--sab) + var(--edge));
+}
+
+.hud .wheel {
+  width: 142px;
+  height: 142px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.9);
+  background: radial-gradient(circle, rgba(8, 10, 14, 0.45) 0%, rgba(8, 10, 14, 0.25) 60%, transparent 72%);
+  touch-action: none;
+  cursor: grab;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  transition: transform 0.15s;
+}
+
+.hud .wheel.active {
+  cursor: grabbing;
+  transform: scale(1.04);
+  color: #fff;
+}
+
+.hud .wheel svg {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hud .car-right {
+  position: absolute;
+  right: calc(var(--sar) + var(--edge));
+  bottom: calc(var(--sab) + var(--edge));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hud .pedals {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hud .pedal {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 6px;
+  background: var(--hud-ghost);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--hud-fg);
+  touch-action: none;
+  user-select: none;
+  transition: transform 0.08s;
+  clip-path: var(--chamfer-sm);
+}
+
+.hud .pedal.brake {
+  width: 74px;
+  height: 92px;
+}
+
+.hud .pedal.gas {
+  width: 56px;
+  height: 128px;
+}
+
+.hud .pedal.on {
+  transform: translateY(2px) scale(0.97);
+}
+
+.hud .pedal .fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: bottom;
+  transition: transform 0.05s linear;
+}
+
+.hud .pedal.gas .fill {
+  background: linear-gradient(0deg, rgba(195, 255, 0, 0.75), rgba(195, 255, 0, 0.25));
+}
+
+.hud .pedal.brake .fill {
+  background: linear-gradient(0deg, rgba(239, 68, 68, 0.8), rgba(239, 68, 68, 0.25));
+}
+
+.hud .pedal .ribs {
+  position: absolute;
+  inset: 10px 10px 26px;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.22) 0 3px, transparent 3px 9px);
+}
+
+.hud .pedal small {
+  position: relative;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: var(--hud-shadow);
+}
+
+.hud .gear {
+  display: flex;
+  background: var(--hud-ghost);
+  padding: 3px;
+  gap: 3px;
+}
+
+.hud .gear button {
+  width: 34px;
+  height: 28px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--hud-dim);
+}
+
+.hud .gear button.on {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.hud .gear button:last-child.on {
+  background: #ff6b4a;
+  color: #fff;
+}
+
+/* speed sits between the wheel and the pedals */
+.hud .speedo-wrap.car {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--sab) + var(--edge) + 4px);
+}
+
+.hud .speedo-wrap.car .speedo {
+  width: 92px;
+  height: 92px;
+}
+
+.hud .speedo-wrap.car .speedo .v b {
+  font-size: 28px;
+}
+
+.app[data-screen='drive'] .hud .speedo-wrap.car ~ .actions,
+.hud:has(.car-left) .actions {
+  bottom: calc(var(--sab) + 170px);
+}
+
+.hud .offroad-warn {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  background: rgba(239, 68, 68, 0.92);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  animation: flash 0.7s steps(2) infinite;
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .hud .wheel {
+    width: 124px;
+    height: 124px;
+  }
+  .hud .speedo-wrap.car {
+    left: calc(50% + 6px);
+  }
+  .hud .speedo-wrap.car .speedo {
+    width: 80px;
+    height: 80px;
+  }
+  .hud .speedo-wrap.car .limit-stack {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud:has(.car-left) .actions {
+    bottom: calc(var(--sab) + var(--edge));
+    left: calc(var(--sal) + 170px);
+  }
+  .hud .speedo-wrap.car {
+    bottom: calc(var(--sab) + 72px);
+  }
+}
+
+/* road driving: speed cluster sits above the pedals on the right */
+.hud .speedo-wrap.car {
+  left: auto;
+  right: calc(var(--sar) + var(--edge));
+  transform: none;
+  bottom: calc(var(--sab) + var(--edge) + 174px);
+  flex-direction: row-reverse;
+  align-items: flex-end;
+}
+
+.hud .speedo-wrap.car .speedo {
+  width: 84px;
+  height: 84px;
+}
+
+.hud .speedo-wrap.car .speedo .v b {
+  font-size: 26px;
+}
+
+.hud .speedo-wrap.car .speedo .acc {
+  display: none;
+}
+
+@media (max-width: 380px) {
+  .hud .speedo-wrap.car {
+    left: auto;
+  }
+  .hud .speedo-wrap.car .limit-stack {
+    display: flex;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .hud .speedo-wrap.car {
+    bottom: calc(var(--sab) + var(--edge));
+    right: calc(var(--sar) + 160px);
   }
 }

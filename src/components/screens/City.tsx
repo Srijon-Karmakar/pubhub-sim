@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import type { Line, ModeGroup } from '../../types';
 import { formatClock } from '../../lib/env/sun';
 import { GROUP_COLOUR, GROUPS } from '../../lib/sim/profiles';
-import { back, retryBuses, retryCity, selectLine } from '../../game/actions';
+import { back, retryBuses, retryCity, retryRail, selectLine } from '../../game/actions';
 import { setApp, useApp } from '../../store/app';
 import { useProgress } from '../../store/progress';
 import { WeatherIcon } from '../WeatherIcon';
@@ -182,6 +182,7 @@ export function CityScreen() {
                   <b>
                     {l.name}
                     {l.longDistance && <span className="ld-tag">Long distance</span>}
+                    {l.railLine && !l.longDistance && <span className="ld-tag">Rail line</span>}
                   </b>
                   <small>{lineSub(l) || `${l.variants.length} route${l.variants.length > 1 ? 's' : ''}`}</small>
                 </span>
@@ -192,6 +193,16 @@ export function CityScreen() {
           );
         })}
         {!filtered.length && s.busState !== 'loading' && <div className="empty">No lines match “{s.query}”.</div>}
+        {s.group !== 'bus' && s.railState === 'loading' && s.lines.every((l) => l.group === 'bus') && (
+          <div className="bus-status">
+            <span className="spinner" style={{ color: GROUP_COLOUR.train }} /> Loading metro, train and tram lines…
+          </div>
+        )}
+        {s.group !== 'bus' && s.railState === 'error' && (
+          <button className="bus-status" onClick={retryRail}>
+            <RefreshCw size={16} /> Metro, train and tram lines didn’t load. Tap to retry
+          </button>
+        )}
         {(s.group === 'all' || s.group === 'bus') && s.busState === 'loading' && (
           <div className="bus-status">
             <span className="spinner" style={{ color: GROUP_COLOUR.bus }} /> Loading bus routes…

@@ -52,11 +52,13 @@ export function buildTimetable(
 
   const v = new Float64Array(N);
   for (let i = 0; i < N - 1; i++) {
-    const a = 0.8 * p.accel * Math.min(1, p.vBase / Math.max(v[i], 0.5)) - resist(v[i]);
+    const a = 0.8 * p.accel * Math.min(1, p.vBase / Math.max(v[i], 0.5)) - resist(v[i]) - 9.81 * track.gradeAt(s0 + i * ds);
     v[i + 1] = Math.min(cap[i + 1], Math.sqrt(Math.max(0, v[i] * v[i] + 2 * Math.max(0.05, a) * ds)));
   }
-  const b = 0.62 * p.brake;
-  for (let i = N - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * b * ds));
+  for (let i = N - 2; i >= 0; i--) {
+    const b = Math.max(0.2, 0.62 * p.brake + 9.81 * track.gradeAt(s0 + i * ds));
+    v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * b * ds));
+  }
 
   const pad = 1.08;
   const gridT = new Float64Array(N);

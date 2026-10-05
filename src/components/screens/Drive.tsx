@@ -13,6 +13,7 @@ import { useHud } from '../../store/hud';
 import { useSettings } from '../../store/settings';
 import { ApproachGauge, BoardingCard, Coach, NextCard, SignalLamp, StreakPill, Toasts } from '../hud/Panels';
 import { Lever } from '../hud/Lever';
+import { GearSwitch, Pedals, SteeringWheel, useCarKeyboard } from '../hud/CarControls';
 import { LimitSign, Speedo } from '../hud/Speedo';
 import { WeatherIcon } from '../WeatherIcon';
 import { Toggle } from '../ui/primitives';
@@ -49,20 +50,40 @@ export function DriveScreen() {
         return;
       }
       if (useHud.getState().paused) return;
+      if (k === 'h') {
+        if (!e.repeat) runner.hornStart();
+        e.preventDefault();
+        return;
+      }
+      if (en.car) {
+        if (k === ' ') runner.doors();
+        else if (k === 'r') runner.setGear(en.gear === 'D' ? 'R' : 'D');
+        else if (k === 'c') setCamera(CAMS[(CAMS.indexOf(useSettings.getState().camera) + 1) % CAMS.length]);
+        else return;
+        e.preventDefault();
+        return;
+      }
       if (k === 'arrowup' || k === 'w') runner.setNotch(en.notch + 1);
       else if (k === 'arrowdown' || k === 's') runner.setNotch(en.notch - 1);
       else if (k === 'n' || k === 'x') runner.setNotch(0);
       else if (k === 'e' || k === 'backspace') runner.setNotch(en.minNotch);
       else if (k === ' ' || k === 'd') runner.doors();
-      else if (k === 'h') runner.horn();
       else if (k === 'r') runner.reverse(en.dir > 0);
       else if (k === 'c') setCamera(CAMS[(CAMS.indexOf(useSettings.getState().camera) + 1) % CAMS.length]);
       else return;
       e.preventDefault();
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'h') runner.hornStop();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, []);
+  useCarKeyboard(!!engine?.car);
 
   if (!snap || !engine || !line) return null;
   const p = engine.profile;
@@ -165,7 +186,17 @@ export function DriveScreen() {
           {doorsOpen ? <DoorOpen size={24} /> : <DoorClosed size={24} />}
           <small>Doors</small>
         </button>
-        <button className="act glass" onClick={() => runner.horn()} aria-label="Horn">
+        <button
+          className="act glass"
+          aria-label="Horn (hold)"
+          onPointerDown={(e) => {
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+            runner.hornStart();
+          }}
+          onPointerUp={() => runner.hornStop()}
+          onPointerCancel={() => runner.hornStop()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <Megaphone size={22} />
           <small>Horn</small>
         </button>
@@ -179,7 +210,7 @@ export function DriveScreen() {
         </button>
       </div>
 
-      <div className="speedo-wrap">
+      <div className={`speedo-wrap ${snap.car ? 'car' : ''}`}>
         <Speedo speed={snap.speed} limit={engine.free ? 0 : snap.limit} vmax={engine.free ? 450 / 3.6 : p.vmax} accel={snap.accel} overspeed={snap.overspeed} units={units} />
         <div className="limit-stack">
           <AnimatePresence>{!engine.free && snap.nextSignal && <SignalLamp key="sig" sig={snap.nextSignal} units={units} rail={p.rail} />}</AnimatePresence>
@@ -187,7 +218,26 @@ export function DriveScreen() {
         </div>
       </div>
 
-      <Lever notch={snap.notch} maxP={p.powerNotches} maxB={p.brakeNotches} />
+      {snap.car ? (
+        <>
+          <div className="car-left">
+            <SteeringWheel steer={snap.steer / ((36 * Math.PI) / 180) / Math.max(0.22, 1 - snap.speed / 26)} />
+          </div>
+          <div className="car-right">
+            <GearSwitch gear={snap.gear} />
+            <Pedals throttle={snap.throttle} brake={snap.brakeIn} />
+          </div>
+          <AnimatePresence>
+            {!engine.free && snap.offRoute > 6 && (
+              <motion.div className="offroad-warn" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+                OFF ROUTE · STEER BACK
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      ) : (
+        <Lever notch={snap.notch} maxP={p.powerNotches} maxB={p.brakeNotches} />
+      )}
 
       <Toasts />
 
@@ -314,7 +364,9 @@ function PauseMenu() {
           </div>
         </div>
         <p className="faint" style={{ fontSize: 12, textAlign: 'center', margin: '4px 0 0' }}>
-          Keyboard: W/S lever · E emergency · Space doors · H horn · C camera · R reverse
+          {runner.engine?.car
+            ? 'Keyboard: W gas · S brake · A/D steer · R reverse gear · Space doors · H horn (hold) · C camera'
+            : 'Keyboard: W/S lever · E emergency · Space doors · H horn (hold) · C camera · R reverse'}
         </p>
       </motion.div>
     </motion.div>

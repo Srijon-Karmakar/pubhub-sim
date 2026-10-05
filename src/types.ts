@@ -34,6 +34,8 @@ export interface RouteRef {
   network?: string;
   operator?: string;
   longDistance?: boolean;
+  /** a railway-line relation rather than a passenger service */
+  railLine?: boolean;
 }
 
 export interface Line {
@@ -46,6 +48,7 @@ export interface Line {
   textColour: string;
   network?: string;
   longDistance?: boolean;
+  railLine?: boolean;
   variants: RouteRef[];
 }
 
@@ -87,9 +90,18 @@ export interface RouteData {
   approx?: boolean;
   /** stops were not mapped, halts were spaced evenly along the route */
   synthStops?: boolean;
+  /** real platforms and neighbouring tracks around stations (loaded in the background) */
+  infra?: StationInfra;
+  /** terrain height along the route every `step` metres (loaded in the background) */
+  ground?: { step: number; z: number[] };
   driveSide: -1 | 1;
   bounds: [number, number, number, number];
   fetchedAt: number;
+}
+
+export interface StationInfra {
+  platforms: { pts: [number, number][]; area: boolean }[];
+  tracks: [number, number][][];
 }
 
 export type WeatherKind = 'clear' | 'cloudy' | 'fog' | 'rain' | 'storm' | 'snow';

@@ -60,6 +60,7 @@ const C = {
   rail: hexToGl('#c7ccd2'),
   concrete: hexToGl('#b9b5ae'),
   platform: hexToGl('#c9c4bb'),
+  platformReal: hexToGl('#a9a49b'),
   edge: hexToGl('#f5c400'),
   canopy: hexToGl('#e9ebee'),
   pillar: hexToGl('#a7a39c'),
@@ -200,12 +201,31 @@ export class SceneLayer implements CustomLayerInterface {
   }
 
   // ---------------------------------------------------------------- geometry
+  /** while set, along-path coordinates map onto the freely steered vehicle's own axis */
+  private carFrame: { o: V2; u: V2; sRef: number } | null = null;
+  private infraElev = new WeakMap<object, number>();
+  private infraGround = new WeakMap<object, number>();
+
   private P(f: Frame, s: number): V2 {
+    const cf = this.carFrame;
+    if (cf) return [cf.o[0] + cf.u[0] * (s - cf.sRef), cf.o[1] + cf.u[1] * (s - cf.sRef)];
     const [la, lo] = this.engine!.track.path.pointAt(s);
     return f.enu(la, lo);
   }
 
+  private setCarFrame(f: Frame) {
+    const e = this.engine!;
+    if (!e.car) return;
+    const pose = e.carPose();
+    const F = f.enu(pose.lat, pose.lon);
+    const u: V2 = [Math.sin(pose.heading), Math.cos(pose.heading)];
+    const lat = this.roadLateral();
+    // origin chosen so that at(s = e.s, lat = lane offset) lands on the vehicle's front
+    this.carFrame = { o: [F[0] - u[1] * lat, F[1] + u[0] * lat], u, sRef: e.s };
+  }
+
   private U(f: Frame, s: number): V2 {
+    if (this.carFrame) return this.carFrame.u;
     const a = this.P(f, s - 2);
     const b = this.P(f, s + 2);
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
@@ -252,7 +272,7 @@ export class SceneLayer implements CustomLayerInterface {
     for (const t of tr.tunnels) {
       const a = Math.max(s0, t.s0);
       const b = Math.min(s1, t.s1);
-      for (let s = a; s < b; s += 10) this.quadAlong(mb, f, s, Math.min(b, s + 10), -5, 5, 0.03, C.tunnel);
+      for (let s = a; s < b; s += 10) this.quadAlong(mb, f, s, Math.min(b, s + 10), -5, 5, tr.elevationAt(s) + 0.03, C.tunnel);
     }
 
     if (p.rail && mode !== 'monorail') {
@@ -260,7 +280,7 @@ export class SceneLayer implements CustomLayerInterface {
       for (let s = s0; s < s1; s += step) {
         const sb = Math.min(s1, s + step);
         const z = (tr.elevationAt(s) + tr.elevationAt(sb)) / 2;
-        if (z > 0.6) this.boxAlong(mb, f, s, sb, -2.4, 2.4, z - 1.15, z, C.concrete);
+        if (z - tr.groundAt(s) > 0.6) this.boxAlong(mb, f, s, sb, -2.4, 2.4, z - 1.15, z, C.concrete);
         if (isTram) this.quadAlong(mb, f, s, sb, -1.45, 1.45, z + 0.05, C.concreteTrack);
         else this.quadAlong(mb, f, s, sb, -1.65, 1.65, z + 0.06, C.ballast);
         this.quadAlong(mb, f, s, sb, -0.76, -0.68, z + 0.2, C.rail);
@@ -276,7 +296,7 @@ export class SceneLayer implements CustomLayerInterface {
       }
       for (let s = Math.ceil(s0 / 30) * 30; s < s1; s += 30) {
         const z = tr.elevationAt(s);
-        if (z > 2) this.boxAlong(mb, f, s - 0.7, s + 0.7, -0.7, 0.7, 0, z - 1.15, C.pillar);
+        if (z - tr.groundAt(s) > 2) this.boxAlong(mb, f, s - 0.7, s + 0.7, -0.7, 0.7, tr.groundAt(s), z - 1.15, C.pillar);
       }
       if (mode === 'train' || isTram) {
         const wireZ = isTram ? 5.6 : 5.4;
@@ -305,12 +325,104 @@ export class SceneLayer implements CustomLayerInterface {
       }
       for (let s = Math.ceil(s0 / 25) * 25; s < s1; s += 25) {
         const z = tr.elevationAt(s);
-        if (z > 2) {
-          this.boxAlong(mb, f, s - 0.6, s + 0.6, -0.6, 0.6, 0, z - 1.9, C.pillar);
+        if (z - tr.groundAt(s) > 2) {
+          this.boxAlong(mb, f, s - 0.6, s + 0.6, -0.6, 0.6, tr.groundAt(s), z - 1.9, C.pillar);
           this.boxAlong(mb, f, s - 0.6, s + 0.6, -1.2, 1.2, z - 2.4, z - 1.9, C.pillar);
         }
       }
     }
+
+    // ---- real station platforms & neighbouring tracks (OpenStreetMap) ----
+    const infraPlatforms: V2[][] = [];
+    const infra = e.route.infra;
+    if (infra && p.rail) {
+      const [cla, clo] = tr.path.pointAt((s0 + s1) / 2);
+      const centre = f.enu(cla, clo);
+      const reach = 1100;
+      const nearWin = (pts: [number, number][]) => {
+        const m = pts[Math.floor(pts.length / 2)];
+        const q = f.enu(m[0], m[1]);
+        return Math.hypot(q[0] - centre[0], q[1] - centre[1]) < reach;
+      };
+      const elevOf = (pts: [number, number][]) => {
+        let z = this.infraElev.get(pts);
+        if (z === undefined) {
+          const m = pts[Math.floor(pts.length / 2)];
+          const pr = tr.path.project(m[0], m[1]);
+          z = tr.elevationAt(pr.s);
+          this.infraElev.set(pts, z);
+          this.infraGround.set(pts, tr.groundAt(pr.s));
+        }
+        return z;
+      };
+      const groundOf = (pts: [number, number][]) => this.infraGround.get(pts) ?? 0;
+      const platH = isTram ? 0.3 : 1.05;
+      for (const pl of infra.platforms) {
+        if (!nearWin(pl.pts)) continue;
+        const z = elevOf(pl.pts);
+        const poly = pl.pts.map((q) => f.enu(q[0], q[1]));
+        if (pl.area) {
+          const gz = groundOf(pl.pts);
+          mb.polyPrism(poly, z - gz > 1 ? z + platH - 0.7 : Math.min(gz, z) - 0.3, z + platH, C.platformReal);
+          // yellow safety line around the platform edge
+          for (let k = 1; k < poly.length; k++) {
+            const a = poly[k - 1];
+            const b = poly[k];
+            if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.5) mb.segBox(b, a, 0.12, z + platH, z + platH + 0.02, C.edge);
+          }
+          infraPlatforms.push(poly);
+          // canopy over long platforms
+          let len = 0;
+          for (let k = 1; k < poly.length; k++) len += Math.hypot(poly[k][0] - poly[k - 1][0], poly[k][1] - poly[k - 1][1]);
+          if (!isTram && len > 120) mb.polyPrism(poly, z + platH + 3.3, z + platH + 3.5, C.canopy);
+        } else {
+          // platform mapped as a line: a 4 m wide slab along it
+          for (let k = 1; k < poly.length; k++) {
+            const a = poly[k - 1];
+            const b = poly[k];
+            if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.3) continue;
+            const gz = groundOf(pl.pts);
+            mb.segBox(b, a, 2.1, z - gz > 1 ? z + platH - 0.7 : Math.min(gz, z) - 0.3, z + platH, C.platformReal);
+            if (!isTram) mb.segBox(b, a, 2.2, z + platH + 3.3, z + platH + 3.5, C.canopy);
+          }
+          infraPlatforms.push(poly);
+        }
+      }
+      for (const tk of infra.tracks) {
+        if (!nearWin(tk)) continue;
+        const z = elevOf(tk);
+        const pts = tk.map((q) => f.enu(q[0], q[1]));
+        for (let k = 1; k < pts.length; k++) {
+          const a = pts[k - 1];
+          const b = pts[k];
+          const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (L2 < 0.3 || L2 > 400) continue;
+          const ux = (b[0] - a[0]) / L2;
+          const uy = (b[1] - a[1]) / L2;
+          const off = (o: number): [V2, V2] => [
+            [a[0] - uy * o, a[1] + ux * o],
+            [b[0] - uy * o, b[1] + ux * o],
+          ];
+          const quad = (o0: number, o1: number, zz: number, col: C4) => {
+            const [a0, b0] = off(o0);
+            const [a1, b1] = off(o1);
+            mb.flat([a0, b0, b1, a1], zz, col);
+          };
+          quad(-1.6, 1.6, z + 0.05, C.ballast);
+          quad(-0.76, -0.68, z + 0.18, C.rail);
+          quad(0.68, 0.76, z + 0.18, C.rail);
+        }
+      }
+    }
+    const nearRealPlatform = (q: V2) =>
+      infraPlatforms.some((poly) => poly.some((v, k) => {
+        const w = poly[(k + 1) % poly.length];
+        const dx = w[0] - v[0];
+        const dy = w[1] - v[1];
+        const L2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((q[0] - v[0]) * dx + (q[1] - v[1]) * dy) / L2));
+        return Math.hypot(v[0] + dx * t - q[0], v[1] + dy * t - q[1]) < 6;
+      }));
 
     // stops
     const hw = p.width / 2;
@@ -320,16 +432,20 @@ export class SceneLayer implements CustomLayerInterface {
       const side = stop.side;
       if (p.rail) {
         const zt = tr.elevationAt(target - L / 2);
-        const elevated = zt > 1;
+        const gt = tr.groundAt(target - L / 2);
+        const elevated = zt - gt > 1;
         const platH = mode === 'monorail' ? -0.15 : isTram ? 0.3 : 1.1;
         const top = zt + platH;
         const inner = side * (hw + 0.2);
         const outer = side * (hw + (isTram ? 2.6 : 4.4));
         const a = target - L - 5;
         const b = target + 5;
+        // the real platform from OSM is already there: don't stack a generic one on it
+        const real = nearRealPlatform(this.at(f, target - L / 2, (inner + outer) / 2));
         for (let s = a; s < b; s += 6) {
+          if (real) break;
           const sb = Math.min(b, s + 6);
-          this.boxAlong(mb, f, s, sb, inner, outer, elevated ? top - 0.7 : 0, top, C.platform);
+          this.boxAlong(mb, f, s, sb, inner, outer, elevated ? top - 0.7 : Math.min(gt, top - 0.2), top, C.platform);
           this.quadAlong(mb, f, s, sb, inner + side * 0.15, inner + side * 0.55, top + 0.012, C.edge);
           if (!isTram) {
             this.boxAlong(mb, f, s, sb, inner + side * 0.4, outer + side * 0.2, top + 3.4, top + 3.6, C.canopy);
@@ -358,13 +474,14 @@ export class SceneLayer implements CustomLayerInterface {
         const lat = this.roadLateral();
         const inner = lat + side * (hw + 0.25);
         const outer = inner + side * 3.2;
-        this.boxAlong(mb, f, stop.s - 10, stop.s + 8, inner, outer, 0, 0.16, C.kerb);
+        const gz = tr.groundAt(stop.s);
+        this.boxAlong(mb, f, stop.s - 10, stop.s + 8, inner, outer, gz - 0.3, gz + 0.16, C.kerb);
         const sh0 = outer - side * 1.5;
-        this.boxAlong(mb, f, stop.s - 2, stop.s + 2.5, sh0, outer - side * 0.1, 2.4, 2.55, C.canopy);
-        this.boxAlong(mb, f, stop.s - 2, stop.s + 2.5, outer - side * 0.18, outer - side * 0.1, 0.16, 2.4, C.shelterGlass);
+        this.boxAlong(mb, f, stop.s - 2, stop.s + 2.5, sh0, outer - side * 0.1, gz + 2.4, gz + 2.55, C.canopy);
+        this.boxAlong(mb, f, stop.s - 2, stop.s + 2.5, outer - side * 0.18, outer - side * 0.1, gz + 0.16, gz + 2.4, C.shelterGlass);
         const pl = inner + side * 0.4;
-        this.boxAlong(mb, f, stop.s + 4.5, stop.s + 4.62, pl - 0.06, pl + 0.06, 0, 2.7, C.pillar);
-        this.boxAlong(mb, f, stop.s + 4.48, stop.s + 4.64, pl - 0.3, pl + 0.3, 2.15, 2.75, hexToGl(this.colour), 2);
+        this.boxAlong(mb, f, stop.s + 4.5, stop.s + 4.62, pl - 0.06, pl + 0.06, gz, gz + 2.7, C.pillar);
+        this.boxAlong(mb, f, stop.s + 4.48, stop.s + 4.64, pl - 0.3, pl + 0.3, gz + 2.15, gz + 2.75, hexToGl(this.colour), 2);
       }
     });
 
@@ -453,6 +570,7 @@ export class SceneLayer implements CustomLayerInterface {
       }
     };
 
+    this.setCarFrame(f);
     for (let i = 0; i < p.cars; i++) {
       if (this.hideVehicle && i < 2) continue;
       const sf = e.s - i * carStride;
@@ -668,9 +786,11 @@ export class SceneLayer implements CustomLayerInterface {
           [3.58, green, !isRed],
         ];
         for (const [z, col, on] of lamps) this.boxAlong(mb, f, g.s - 0.2, g.s - 0.16, lt - 0.15, lt + 0.15, zb + z, zb + z + 0.3, on ? col : off, on ? 2 : 0);
-        this.quadAlong(mb, f, g.s - 0.5, g.s, lat - 1.9, lat + 1.9, 0.05, hexToGl('#f4f4f4', 0.9), 2);
+        this.quadAlong(mb, f, g.s - 0.5, g.s, lat - 1.9, lat + 1.9, zb + 0.05, hexToGl('#f4f4f4', 0.9), 2);
       }
     }
+
+    this.carFrame = null;
 
     // ---- stop zone guide ----
     if (this.assists && stop && !e.served && target - e.s < p.approach + 20) {
@@ -703,6 +823,7 @@ export class SceneLayer implements CustomLayerInterface {
     const bm = this.mbBeam;
     bm.reset();
     this.beam.frame.set(la, lo);
+    this.setCarFrame(f);
     if (this.night > 0.25 && !ship) {
       const z = tr.elevationAt(e.s) + (p.rail ? 0.3 : 0.06);
       const a = this.night * 0.32;
@@ -712,6 +833,7 @@ export class SceneLayer implements CustomLayerInterface {
       const f0 = this.at(f, e.s + 48, lat - 4.5);
       bm.flat([n0, n1, f1, f0], z, [1, 0.93, 0.76, 1], 2, [a, a, 0, 0]);
     }
+    this.carFrame = null;
     this.upload(this.beam, bm);
   }
 
@@ -720,7 +842,7 @@ export class SceneLayer implements CustomLayerInterface {
     const p = e.profile;
     const z = e.track.elevationAt(along);
     const mode = e.route.mode;
-    if (!p.rail) return p.sound === 'ship' ? 1.4 : 0.16;
+    if (!p.rail) return p.sound === 'ship' ? 1.4 : e.track.groundAt(along) + 0.16;
     if (mode === 'monorail') return z - 0.15;
     if (mode === 'tram' || mode === 'light_rail') return z + 0.3;
     return z + 1.1;
@@ -860,7 +982,7 @@ export class SceneLayer implements CustomLayerInterface {
     const dt = this.lastT ? Math.min(0.1, now - this.lastT) : 0.016;
     this.lastT = now;
 
-    const key = `${e.route.id}:${e.k}:${e.served}`;
+    const key = `${e.route.id}:${e.k}:${e.served}:${e.route.infra ? 1 : 0}`;
     if (Math.abs(e.s - this.staticS) > 60 || key !== this.staticKey || e.k !== this.staticK) {
       this.staticS = e.s;
       this.staticKey = key;

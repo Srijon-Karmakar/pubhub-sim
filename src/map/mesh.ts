@@ -79,6 +79,73 @@ export class MeshBuilder {
     }
   }
 
+  /** Extruded polygon that may be concave (platform outlines): ear-clipped top, walls per edge. */
+  polyPrism(poly: V2[], z0: number, z1: number, c: C4, top: C4 | null = null) {
+    let pts = poly.slice();
+    if (pts.length > 2 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+    if (pts.length < 3) return;
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      area += a[0] * b[1] - b[0] * a[1];
+    }
+    if (area < 0) pts = pts.reverse();
+    const m = pts.length;
+    this.ensure(m * 6 + m * 3);
+    for (let i = 0; i < m; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % m];
+      let nx = b[1] - a[1];
+      let ny = -(b[0] - a[0]);
+      const L = Math.hypot(nx, ny) || 1;
+      nx /= L;
+      ny /= L;
+      this.vert(a[0], a[1], z0, nx, ny, 0, c, 0);
+      this.vert(b[0], b[1], z0, nx, ny, 0, c, 0);
+      this.vert(b[0], b[1], z1, nx, ny, 0, c, 0);
+      this.vert(a[0], a[1], z0, nx, ny, 0, c, 0);
+      this.vert(b[0], b[1], z1, nx, ny, 0, c, 0);
+      this.vert(a[0], a[1], z1, nx, ny, 0, c, 0);
+    }
+    const tc = top ?? c;
+    const idx = pts.map((_, i) => i);
+    const cross = (o: V2, a: V2, b: V2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const inside = (p: V2, a: V2, b: V2, q: V2) => cross(a, b, p) >= 0 && cross(b, q, p) >= 0 && cross(q, a, p) >= 0;
+    let guard = 0;
+    while (idx.length > 3 && guard++ < 4000) {
+      let clipped = false;
+      for (let i = 0; i < idx.length; i++) {
+        const ia = idx[(i + idx.length - 1) % idx.length];
+        const ib = idx[i];
+        const ic = idx[(i + 1) % idx.length];
+        const A = pts[ia];
+        const B = pts[ib];
+        const Cp = pts[ic];
+        if (cross(A, B, Cp) <= 0) continue;
+        let ear = true;
+        for (const j of idx) {
+          if (j === ia || j === ib || j === ic) continue;
+          if (inside(pts[j], A, B, Cp)) {
+            ear = false;
+            break;
+          }
+        }
+        if (!ear) continue;
+        this.vert(A[0], A[1], z1, 0, 0, 1, tc, 0);
+        this.vert(B[0], B[1], z1, 0, 0, 1, tc, 0);
+        this.vert(Cp[0], Cp[1], z1, 0, 0, 1, tc, 0);
+        idx.splice(i, 1);
+        clipped = true;
+        break;
+      }
+      if (!clipped) break;
+    }
+    if (idx.length === 3) {
+      for (const j of idx) this.vert(pts[j][0], pts[j][1], z1, 0, 0, 1, tc, 0);
+    }
+  }
+
   /** Flat horizontal quad (counter-clockwise), with optional per-corner alpha. */
   flat(p: V2[], z: number, c: C4, e = 0, alphas?: [number, number, number, number]) {
     this.ensure(6);

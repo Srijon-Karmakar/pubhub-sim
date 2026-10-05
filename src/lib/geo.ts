@@ -111,6 +111,26 @@ export class RoutePath {
     return bearing(la, lo, lb, lob);
   }
 
+  /** Fast projection limited to a window of ±`win` metres around `sHint` (for tracking a moving vehicle). */
+  projectNear(lat: number, lon: number, sHint: number, win: number): { s: number; d: number } {
+    const n = this.cum.length;
+    const i0 = this.segmentAt(sHint - win);
+    const i1 = Math.min(n - 2, this.segmentAt(sHint + win));
+    let best = { s: sHint, d: Infinity };
+    for (let i = i0; i <= i1; i++) {
+      const [ax, ay] = toENU(this.lat[i], this.lon[i], lat, lon);
+      const [bx, by] = toENU(this.lat[i + 1], this.lon[i + 1], lat, lon);
+      const dx = bx - ax;
+      const dy = by - ay;
+      const L2 = dx * dx + dy * dy;
+      const t = clamp(L2 > 0 ? -(ax * dx + ay * dy) / L2 : 0, 0, 1);
+      const d = Math.hypot(ax + dx * t, ay + dy * t);
+      if (d < best.d) best = { s: this.cum[i] + (this.cum[i + 1] - this.cum[i]) * t, d };
+    }
+    this.segmentAt(sHint);
+    return best;
+  }
+
   /**
    * Project a point onto the path, preferring positions at or after `minS`.
    * Returns distance along path and perpendicular distance.

@@ -108,9 +108,12 @@ export function overpass(
   const stagger = opts.staggerMs ?? 5000;
   return new Promise((resolve, reject) => {
     let settled = false;
-    let started = 0;
-    let failed = 0;
+    let next = 0;
+    let attempts = 0;
+    let inFlight = 0;
+    let pendingRetries = 0;
     let lastErr: unknown = null;
+    const retried = new Map<string, number>();
     const ctrls: AbortController[] = [];
     const timers: number[] = [];
     const done = () => {
@@ -124,15 +127,20 @@ export function overpass(
       done();
       reject(new DOMException('Aborted', 'AbortError'));
     };
-    const launch = () => {
-      if (settled || started >= eps.length) return;
-      const url = eps[started];
-      const n = started++;
+    const maybeFail = () => {
+      if (settled || inFlight > 0 || pendingRetries > 0 || next < eps.length) return;
+      done();
+      reject(lastErr instanceof Error ? lastErr : new NetError('All Overpass servers failed'));
+    };
+    const attempt = (url: string) => {
+      if (settled) return;
       const ctrl = new AbortController();
       ctrls.push(ctrl);
-      opts.onAttempt?.(url === PROXY ? 'overpass-api.de' : new URL(url).host, n);
+      inFlight++;
+      opts.onAttempt?.(url === PROXY ? 'overpass-api.de' : new URL(url).host, attempts++);
       queryOne(url, query, ctrl.signal, opts.timeoutMs ?? 60000).then(
         (res) => {
+          inFlight--;
           if (settled) return;
           done();
           // remember the winner for next time
@@ -140,18 +148,33 @@ export function overpass(
           resolve(res);
         },
         (e) => {
+          inFlight--;
           if (settled) return;
           lastErr = e;
-          failed++;
-          if (failed >= eps.length) {
-            done();
-            reject(lastErr instanceof Error ? lastErr : new NetError('All Overpass servers failed'));
-          } else launch();
+          // "busy" answers clear within seconds: give the fastest server a couple more tries
+          const busy = e instanceof NetError && (e.status === 429 || e.status === 504);
+          const n = retried.get(url) ?? 0;
+          if (busy && url === eps[0] && n < 2) {
+            retried.set(url, n + 1);
+            pendingRetries++;
+            timers.push(
+              window.setTimeout(() => {
+                pendingRetries--;
+                attempt(url);
+              }, 1800 * (n + 1)),
+            );
+          }
+          launchNext();
+          maybeFail();
         },
       );
     };
+    const launchNext = () => {
+      if (settled || next >= eps.length) return;
+      attempt(eps[next++]);
+    };
     opts.signal?.addEventListener('abort', onAbort);
-    launch();
-    for (let i = 1; i < eps.length; i++) timers.push(window.setTimeout(launch, stagger * i));
+    launchNext();
+    for (let i = 1; i < eps.length; i++) timers.push(window.setTimeout(launchNext, stagger * i));
   });
 }

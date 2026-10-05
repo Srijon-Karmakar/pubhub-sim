@@ -1,5 +1,4 @@
-import '@fontsource-variable/inter';
-import '@fontsource-variable/space-grotesk';
+import '@fontsource-variable/onest';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
@@ -9,8 +8,9 @@ import './styles/global.css';
 registerSW({ immediate: true });
 
 if (import.meta.env.DEV) {
-  void Promise.all([import('./game/actions'), import('./game/runner'), import('./store/app'), import('./store/hud')]).then(([actions, r, app, hud]) => {
+  void Promise.all([import('./game/actions'), import('./game/runner'), import('./store/app'), import('./store/hud'), import('./map/mapController')]).then(([actions, r, app, hud, mc]) => {
     (window as unknown as Record<string, unknown>).__pp = { actions, runner: r.runner, useApp: app.useApp, useHud: hud.useHud };
+    Object.defineProperty(window, '__map', { get: () => mc.mapCtl.map });
   });
 }
 

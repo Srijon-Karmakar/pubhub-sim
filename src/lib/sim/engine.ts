@@ -1,5 +1,5 @@
 import type { RouteData, StopRating, WeatherKind } from '../../types';
-import { clamp } from '../geo';
+import { clamp, fromENU, toENU } from '../geo';
 import { hashString, mulberry32, planPassengers, type PaxPlan } from './passengers';
 import { PROFILES, vehicleLength, type VehicleProfile } from './profiles';
 import { buildTimetable, idealTimeBetween, type Timetable } from './timetable';
@@ -78,6 +78,15 @@ export interface HudSnapshot {
   inTunnel: boolean;
   canReverse: boolean;
   nextSignal: { dist: number; state: 'red' | 'green' } | null;
+  /** manual road driving (buses) */
+  car: boolean;
+  steer: number;
+  gear: 'D' | 'R';
+  grade: number;
+  throttle: number;
+  brakeIn: number;
+  offRoute: number;
+  kerbOk: boolean;
   streak: number;
   mult: number;
   reversing: boolean;
@@ -113,6 +122,23 @@ export class Engine {
   readonly weather: WeatherKind;
   autoDoors: boolean;
   readonly free: boolean;
+  /** buses and trolleybuses are driven like a car: steering, pedals, reverse */
+  readonly car: boolean;
+
+  // ---- car model (rear-axle bicycle model, ENU metres from carOrigin)
+  carX = 0;
+  carY = 0;
+  heading = 0;
+  steer = 0;
+  speed = 0;
+  throttle = 0;
+  brakeIn = 0;
+  steerIn = 0;
+  gear: 'D' | 'R' = 'D';
+  lateral = 0;
+  private carOrigin: [number, number] = [0, 0];
+  private offRouteT = 0;
+  private laneLat = 0;
 
   t = 0;
   s: number;
@@ -177,6 +203,7 @@ export class Engine {
     this.weather = o.weather;
     this.autoDoors = o.autoDoors;
     this.free = !!o.free;
+    this.car = o.route.mode === 'bus' || o.route.mode === 'trolleybus';
     this.plan = planPassengers(this.tt.stops, this.profile, o.hourLocal, hashString(`${o.route.id}:${o.startIdx}:${Math.floor(o.hourLocal)}`));
     this.waiting = this.plan.waiting.slice();
     this.boardLeft = this.waiting[0];
@@ -187,6 +214,7 @@ export class Engine {
     const last = this.tt.stops[this.tt.stops.length - 1];
     this.events.push({ type: 'announce', text: `This is the ${this.route.ref} service to ${last.name}.` });
     if (!this.free && this.profile.sound !== 'ship') this.placeSignals();
+    if (this.car) this.resetCar(this.s);
   }
 
   private placeSignals() {
@@ -247,6 +275,158 @@ export class Engine {
         }
       }
     }
+  }
+
+  // ------------------------------------------------------------ car driving
+  private get wheelbase() {
+    return this.length * 0.55;
+  }
+  private get frontOverhang() {
+    return this.length * 0.23;
+  }
+
+  /** Puts the vehicle back on its lane at path position s, facing along the route. */
+  resetCar(s: number) {
+    const path = this.track.path;
+    const [la, lo] = path.pointAt(s);
+    this.carOrigin = [la, lo];
+    this.laneLat = this.route.driveSide * 1.7;
+    const h = path.headingAt(s, 6);
+    this.heading = h;
+    // front of the vehicle at s on its lane; the model tracks the rear axle behind it
+    const fx = Math.cos(h) * this.laneLat;
+    const fy = -Math.sin(h) * this.laneLat;
+    const back = this.frontOverhang + this.wheelbase;
+    this.carX = fx - Math.sin(h) * back;
+    this.carY = fy - Math.cos(h) * back;
+    this.speed = 0;
+    this.steer = 0;
+    this.s = s;
+    this.lateral = this.laneLat;
+  }
+
+  /** Front-centre of the vehicle in lat/lon plus heading (radians, clockwise from north). */
+  carPose(): { lat: number; lon: number; heading: number; rearLat: number; rearLon: number } {
+    const fwd = this.wheelbase + this.frontOverhang;
+    const rearOver = this.length - fwd;
+    const fx = this.carX + Math.sin(this.heading) * fwd;
+    const fy = this.carY + Math.cos(this.heading) * fwd;
+    const rx = this.carX - Math.sin(this.heading) * rearOver;
+    const ry = this.carY - Math.cos(this.heading) * rearOver;
+    const [lat, lon] = fromENU(fx, fy, this.carOrigin[0], this.carOrigin[1]);
+    const [rearLat, rearLon] = fromENU(rx, ry, this.carOrigin[0], this.carOrigin[1]);
+    return { lat, lon, heading: this.heading, rearLat, rearLon };
+  }
+
+  setPedals(throttle: number, brake: number) {
+    this.throttle = clamp(throttle, 0, 1);
+    this.brakeIn = clamp(brake, 0, 1);
+  }
+
+  setSteer(x: number) {
+    this.steerIn = clamp(x, -1, 1);
+  }
+
+  setGear(g: 'D' | 'R') {
+    if (this.v > 0.6) {
+      this.once('gear', 2, { type: 'toast', text: 'Stop before changing gear', tone: 'warn' });
+      return;
+    }
+    this.gear = g;
+  }
+
+  /** the vehicle is lined up at the kerb (required to open doors) */
+  get kerbOk() {
+    return !this.car || Math.abs(this.lateral - this.laneLat) < 4.2;
+  }
+
+  private stepCar(dt: number) {
+    const p = this.profile;
+    const vAbs = Math.abs(this.speed);
+    // steering: speed-sensitive lock, finite wheel rate
+    const maxSteer = ((36 * Math.PI) / 180) * clamp(1 - vAbs / 26, 0.22, 1);
+    const target = this.steerIn * maxSteer;
+    this.steer += clamp(target - this.steer, -1.5 * dt, 1.5 * dt);
+
+    // longitudinal
+    const accMax = this.free ? p.accel * 1.6 : p.accel;
+    const vBase = this.free ? p.vBase * 3.5 : p.vBase;
+    let drive = 0;
+    if (this.throttle > 0.02) {
+      if (this.doors !== 'closed') {
+        this.once('traction', 4, { type: 'toast', text: 'Doors open. Close them before driving', tone: 'warn' });
+      } else {
+        const a = accMax * this.throttle * Math.min(1, vBase / Math.max(vAbs, 0.1));
+        drive = this.gear === 'D' ? a : -Math.min(a, 1.1);
+      }
+    }
+    const brakeCap = this.brakeCap * 1.2;
+    let brake = this.brakeIn * Math.min(p.brake * 1.3, brakeCap);
+    this.slip = this.brakeIn > 0.85 && p.brake * 1.3 > brakeCap && vAbs > 3;
+    if (this.slip) brake *= 0.8;
+    const resist = vAbs > 0 ? (this.free ? 0.01 + 0.00003 * vAbs * vAbs : 0.03 + 0.0009 * vAbs * vAbs) : 0;
+    const prev = this.speed;
+    const gradeAcc = -9.81 * this.track.gradeAt(this.s);
+    let sp = this.speed + (drive + (Math.abs(this.speed) > 0.05 || Math.abs(drive) > 0.05 ? gradeAcc : 0)) * dt;
+    const dec = (brake + resist) * dt;
+    if (Math.abs(sp) <= dec && Math.abs(drive) < 0.05) sp = 0;
+    else if (sp !== 0) sp -= Math.sign(sp) * Math.min(dec, Math.abs(sp));
+    if (this.gear === 'R') sp = Math.max(sp, -4.5);
+    else sp = Math.max(sp, 0);
+    if (!this.free) sp = Math.min(sp, p.vmax * 1.08);
+    this.speed = sp;
+    const rawA = (Math.abs(sp) - Math.abs(prev)) / dt;
+    this.a += (rawA - this.a) * (1 - Math.exp(-dt / 0.25));
+    if (this.brakeIn > 0.98 && vAbs > 2 && !this.ebFlag) {
+      this.ebFlag = true;
+      this.comfort = Math.max(0, this.comfort - 6);
+      this.emit({ type: 'haptic', pattern: [100] });
+    }
+    if (this.brakeIn < 0.9) this.ebFlag = false;
+
+    // kinematics (rear axle)
+    this.heading += (sp / this.wheelbase) * Math.tan(this.steer) * dt;
+    this.carX += Math.sin(this.heading) * sp * dt;
+    this.carY += Math.cos(this.heading) * sp * dt;
+
+    // track progress along the route
+    const pose = this.carPose();
+    const pr = this.track.path.projectNear(pose.lat, pose.lon, this.s, 90);
+    const [pla, plo] = this.track.path.pointAt(pr.s);
+    const [dx, dy] = toENU(pose.lat, pose.lon, pla, plo);
+    const ph = this.track.path.headingAt(pr.s, 6);
+    this.lateral = dx * Math.cos(ph) - dy * Math.sin(ph);
+    const ds = pr.s - this.s;
+    this.s = pr.s;
+    this.dir = ds < 0 ? -1 : 1;
+    this.v = Math.abs(sp);
+    this.distance += Math.abs(sp) * dt;
+    // keep the ENU origin near the vehicle for precision on long routes
+    if (Math.hypot(this.carX, this.carY) > 3000) {
+      const [nla, nlo] = fromENU(this.carX, this.carY, this.carOrigin[0], this.carOrigin[1]);
+      this.carOrigin = [nla, nlo];
+      this.carX = 0;
+      this.carY = 0;
+    }
+
+    // leaving the road
+    const off = Math.abs(this.lateral) - 3.6;
+    if (off > 0 && !this.free) {
+      this.offRouteT += dt;
+      this.speed *= Math.exp(-dt * Math.min(1.2, off / 20));
+      if (off > 6) {
+        this.addPoints('Off route', -8 * dt);
+        this.once('offroad', 5, { type: 'toast', text: 'Off the route! Steer back onto the road', tone: 'bad' });
+      }
+      if (off > 110 || this.offRouteT > 30) {
+        this.addPoints('Recovered to route', -200);
+        this.emit({ type: 'score', label: 'RECOVERED TO ROUTE', points: -200, tone: 'bad' });
+        this.resetCar(Math.max(this.tt.targets[0], this.s - 10));
+        this.offRouteT = 0;
+      }
+    } else if (off > 110 && this.free) {
+      this.resetCar(this.s);
+    } else this.offRouteT = Math.max(0, this.offRouteT - dt * 2);
   }
 
   get streakMult() {
@@ -317,6 +497,10 @@ export class Engine {
       return;
     }
     if (!this.served && Math.abs(d) <= tol) {
+      if (!this.kerbOk) {
+        this.once('kerb', 2, { type: 'toast', text: 'Pull in to the kerb to open the doors', tone: 'info' });
+        return;
+      }
       this.openDoors(true);
       return;
     }
@@ -508,6 +692,10 @@ export class Engine {
       this.flow(dt);
     }
 
+    const prevA = this.a;
+    const sPrev = this.s;
+    if (this.car) this.stepCar(dt);
+    else {
     // ---- traction ----------------------------------------------------
     let notch = this.notch;
     if (this.atp) notch = this.minNotch;
@@ -552,8 +740,9 @@ export class Engine {
     this.aTr += (aCmd - this.aTr) * (1 - Math.exp(-dt / tau));
     const resist =
       this.v <= 0 ? 0 : this.free ? 0.008 + 0.000025 * this.v * this.v : p.sound === 'ship' ? 0.01 + 0.0035 * this.v * this.v : 0.012 + 0.00018 * this.v * this.v;
-    const prevA = this.a;
-    let acc = this.aTr - resist;
+    // gravity on gradients (trains don't roll back: brakes hold them at a stand)
+    const gradeAcc = -9.81 * this.track.gradeAt(this.s) * this.dir;
+    let acc = this.aTr - resist + (this.v > 0.01 || this.aTr + gradeAcc > 0 ? gradeAcc : 0);
     let v = this.v + acc * dt;
     // static friction: a crawling vehicle without traction comes to a clean stop
     if (v <= 0 || (v < 0.04 && this.aTr <= 0.02)) {
@@ -564,9 +753,11 @@ export class Engine {
     this.v = v;
     this.a = acc;
     const ds = this.dir * v * dt;
-    const sPrev = this.s;
     this.s += ds;
     this.distance += Math.abs(ds);
+    }
+    const v = this.v;
+    const acc = this.a;
     if (v > this.maxSpeed) this.maxSpeed = v;
     if (v === 0) this.stoppedTime += dt;
     else this.stoppedTime = 0;
@@ -643,7 +834,7 @@ export class Engine {
     const tol = p.tol[3];
     if (!this.served) {
       const inZone = Math.abs(d) <= tol;
-      if (inZone && v === 0 && this.doors === 'closed' && this.autoDoors && this.stoppedTime > 0.9) this.openDoors(true);
+      if (inZone && this.kerbOk && v === 0 && this.doors === 'closed' && this.autoDoors && this.stoppedTime > 0.9) this.openDoors(true);
       const margin = this.isLast ? 160 : p.rail ? 45 : 30;
       if (d < -(tol + margin) && this.dir > 0) this.missStop();
     } else if (this.doors === 'closed' && this.departReady && v > 0.2 && Math.abs(this.s - this.stoppedS) > 1.2) {
@@ -729,7 +920,7 @@ export class Engine {
       nextStopName: this.tt.stops[this.k + 1]?.name,
       distToStop: d,
       inZone: Math.abs(d) <= tol,
-      canOpen: !this.served && v === 0 && Math.abs(d) <= tol && this.doors === 'closed',
+      canOpen: !this.served && v === 0 && Math.abs(d) <= tol && this.doors === 'closed' && this.kerbOk,
       served: this.served,
       flowDone: this.flowDone,
       alightLeft: this.alightLeft,
@@ -750,6 +941,14 @@ export class Engine {
       canReverse: !this.served && v === 0 && d < -tol && this.dir > 0,
       nextSignal: this.nextSignalInfo(),
       streak: this.streak,
+      car: this.car,
+      steer: this.steer,
+      gear: this.gear,
+      grade: this.track.gradeAt(this.s),
+      throttle: this.throttle,
+      brakeIn: this.brakeIn,
+      offRoute: Math.max(0, Math.abs(this.lateral) - 3.6),
+      kerbOk: this.kerbOk,
       mult: this.streakMult,
       reversing: this.dir < 0,
       reqDecel,

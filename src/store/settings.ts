@@ -15,6 +15,7 @@ export interface Settings {
   autoDoors: boolean;
   assists: boolean;
   quality: 'high' | 'low';
+  terrain: boolean;
   camera: CameraMode;
   headingUp: boolean;
   tutorialDone: boolean;
@@ -33,6 +34,7 @@ export const useSettings = create<Settings>()(
       autoDoors: false,
       assists: true,
       quality: 'high',
+      terrain: true,
       camera: 'chase',
       headingUp: true,
       tutorialDone: false,

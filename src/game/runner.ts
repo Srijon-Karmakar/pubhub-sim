@@ -8,6 +8,7 @@ import { pushToast, useHud } from '../store/hud';
 import { useProgress } from '../store/progress';
 import { useSettings } from '../store/settings';
 import { applyEnv } from './env';
+import { carInput, resetCarInput, updateCarInput } from './carInput';
 
 interface RunCtx {
   city: City;
@@ -54,6 +55,7 @@ class Runner {
     mapCtl.scene.assists = useSettings.getState().assists;
     mapCtl.scene.hideVehicle = useSettings.getState().camera === 'cab';
     audio.setVehicle(engine.profile);
+    resetCarInput();
     this.last = performance.now();
     this.envAcc = 99;
     this.stopsKey = '';
@@ -78,7 +80,7 @@ class Runner {
     void this.wake?.release().catch(() => {});
     this.wake = null;
     audio.idle();
-    window.speechSynthesis?.cancel();
+    audio.clearSpeech();
   }
 
   private onVis = () => {
@@ -144,6 +146,11 @@ class Runner {
     const hud = useHud.getState();
     const settings = useSettings.getState();
 
+    if (e.car && !hud.paused) {
+      updateCarInput(dt);
+      e.setPedals(carInput.throttle, carInput.brake);
+      e.setSteer(carInput.steer);
+    }
     if (!hud.paused && !e.finished) {
       let rem = dt * hud.warp;
       while (rem > 1e-6) {
@@ -174,11 +181,13 @@ class Runner {
     // audio
     if (!hud.paused) {
       const p = e.profile;
-      const effort = e.notch > 0 && e.doors === 'closed' ? e.notch / p.powerNotches : e.notch < 0 ? e.notch / (p.brakeNotches + 1) : 0;
+      const effort = e.car
+        ? (e.doors === 'closed' ? e.throttle : 0) - e.brakeIn
+        : e.notch > 0 && e.doors === 'closed' ? e.notch / p.powerNotches : e.notch < 0 ? e.notch / (p.brakeNotches + 1) : 0;
       audio.update({
         v: e.v,
         effort,
-        brakeNotchFrac: e.notch < 0 ? -e.notch / (p.brakeNotches + 1) : 0,
+        brakeNotchFrac: e.car ? e.brakeIn : e.notch < 0 ? -e.notch / (p.brakeNotches + 1) : 0,
         inTunnel,
         rain: e.weather === 'storm' ? 1 : e.weather === 'rain' ? 0.6 : 0,
         dt,
@@ -230,9 +239,26 @@ class Runner {
     this.engine?.toggleDoors();
   }
 
-  horn() {
-    audio.playHorn();
+  /** horns sound for as long as they're held */
+  hornStart() {
+    audio.hornStart();
     haptic(15);
+  }
+
+  hornStop() {
+    audio.hornStop();
+  }
+
+  horn() {
+    audio.hornStart();
+    window.setTimeout(() => audio.hornStop(), 450);
+    haptic(15);
+  }
+
+  setGear(g: 'D' | 'R') {
+    this.engine?.setGear(g);
+    audio.click8();
+    haptic(10);
   }
 
   reverse(on: boolean) {

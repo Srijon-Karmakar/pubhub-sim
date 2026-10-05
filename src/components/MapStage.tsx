@@ -13,6 +13,8 @@ export function MapStage() {
     mapCtl.setInteractive(false);
     mapCtl.setLabels('minimal');
     if (useSettings.getState().quality === 'low') mapCtl.setQuality('low');
+    const st = useSettings.getState();
+    mapCtl.setTerrain(st.terrain && st.quality !== 'low');
     void mapCtl.ready.then(() => {
       // the player may already have opened a city while the map was loading
       const s = useApp.getState().screen;
