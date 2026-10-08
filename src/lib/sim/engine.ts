@@ -785,6 +785,9 @@ export class Engine {
       this.comfort = clamp(this.comfort - loss * dt + (loss < 0.01 ? 0.5 * dt : 0), 0, 100);
       this.comfortInt += this.comfort * dt;
       this.runTime += dt;
+      if (this.comfort < 35 && loss > 0.01) {
+        this.once('discomfort', 6, { type: 'toast', text: 'Rough ride! Ease off to keep passengers comfortable', tone: 'warn' });
+      }
     }
 
     // ---- speed limits / ATP --------------------------------------------

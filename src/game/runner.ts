@@ -167,7 +167,8 @@ class Runner {
     // camera & scene
     mapCtl.follow(e, settings.camera, dt, settings.headingUp);
     const inTunnel = e.track.inTunnel(e.s - e.length * 0.3);
-    this.tunnelBlend += ((inTunnel ? 1 : 0) - this.tunnelBlend) * Math.min(1, dt * 3);
+    const hiddenByTerrain = inTunnel || e.track.isCutting(e.s - e.length * 0.3);
+    this.tunnelBlend += ((hiddenByTerrain ? 1 : 0) - this.tunnelBlend) * Math.min(1, dt * 3);
     mapCtl.scene.xray = this.tunnelBlend > 0.5;
     // OSM often maps stations as halls over the tracks: fade buildings around platforms
     const toStop = Math.abs(e.tt.targets[e.k] - e.s);

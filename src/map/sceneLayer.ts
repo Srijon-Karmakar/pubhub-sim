@@ -1013,11 +1013,13 @@ export class SceneLayer implements CustomLayerInterface {
 
     this.draw(g, this.stat, main);
     this.draw(g, this.dyn, main);
-    // ghost pass: wherever buildings (e.g. OSM station halls) hide the vehicle,
-    // it shows through as a translucent silhouette; visible parts are unchanged
-    if (!this.xray && this.dyn.count) {
+    // ghost pass: wherever buildings (e.g. OSM station halls) or the map's raw terrain mesh
+    // hide the track or vehicle, it shows through as a translucent silhouette instead of
+    // vanishing outright; visible parts are unchanged (the re-draw blends to the same colour)
+    if (!this.xray && (this.stat.count || this.dyn.count)) {
       g.clear(g.DEPTH_BUFFER_BIT);
       g.uniform1f(this.uni.u_alpha, 0.72);
+      this.draw(g, this.stat, main);
       this.draw(g, this.dyn, main);
       g.uniform1f(this.uni.u_alpha, 1);
     }

@@ -305,4 +305,14 @@ export class Track {
     for (const t of this.tunnels) if (s >= t.s0 && s <= t.s1) return true;
     return false;
   }
+
+  /**
+   * True where the engineered (smoothed, grade-capped) profile sits well below the raw
+   * ground it was derived from — a cutting through a knoll that OSM never tagged as a
+   * tunnel. The map's 3D terrain still renders that knoll at full height, so the renderer
+   * treats this the same as a tunnel (x-ray) rather than letting the hill swallow the train.
+   */
+  isCutting(s: number): boolean {
+    return this.groundAt(s) - this.elevationAt(s) > 3;
+  }
 }

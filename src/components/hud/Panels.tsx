@@ -38,6 +38,18 @@ export function StreakPill({ streak, mult }: { streak: number; mult: number }) {
   );
 }
 
+export function ComfortMeter({ comfort }: { comfort: number }) {
+  const col = comfort < 40 ? 'var(--bad)' : comfort < 70 ? 'var(--warn)' : 'var(--good)';
+  return (
+    <div className="comfort-meter glass" title="Ride comfort: smooth acceleration and braking keep it up">
+      <small>COMFORT</small>
+      <div className="bar">
+        <i style={{ width: `${Math.round(comfort)}%`, background: col }} />
+      </div>
+    </div>
+  );
+}
+
 export function deltaClass(d: number) {
   if (d > 60) return 'vlate';
   if (d > 15) return 'late';

@@ -11,7 +11,7 @@ import { runner } from '../../game/runner';
 import { useApp } from '../../store/app';
 import { useHud } from '../../store/hud';
 import { useSettings } from '../../store/settings';
-import { ApproachGauge, BoardingCard, Coach, NextCard, SignalLamp, StreakPill, Toasts } from '../hud/Panels';
+import { ApproachGauge, BoardingCard, Coach, ComfortMeter, NextCard, SignalLamp, StreakPill, Toasts } from '../hud/Panels';
 import { Lever } from '../hud/Lever';
 import { GearSwitch, Pedals, SteeringWheel, useCarKeyboard } from '../hud/CarControls';
 import { LimitSign, Speedo } from '../hud/Speedo';
@@ -112,6 +112,7 @@ export function DriveScreen() {
             {formatClock(snap.clockUtc, off)}
           </div>
           {!engine.free && <StreakPill streak={snap.streak} mult={snap.mult} />}
+          <ComfortMeter comfort={snap.comfort} />
           {engine.free ? (
             <div className="score-pill glass free">
               <small>MODE</small>
