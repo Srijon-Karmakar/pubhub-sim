@@ -2,11 +2,14 @@ import { Info, LocateFixed, Search, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 import { compact } from '../../lib/format';
 import { POPULAR, popularToCity } from '../../lib/osm/search';
+import { CabinBackdrop } from '../CabinBackdrop';
 import { Flag } from '../Flag';
 import { openAbout, openCity } from '../../game/actions';
 import { setApp } from '../../store/app';
 import { useProgress } from '../../store/progress';
 import { useSettings } from '../../store/settings';
+
+const FACEBOOK_URL = 'https://www.facebook.com/share/1C9jhzVe5J/';
 
 const container = {
   hidden: {},
@@ -25,6 +28,7 @@ export function HomeScreen() {
 
   return (
     <motion.div className="screen home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.25 } }}>
+      <CabinBackdrop className="home-bg" />
       <div className="scrim-top" />
       <div className="scrim-bottom" />
       <div className="home-top">
@@ -44,7 +48,7 @@ export function HomeScreen() {
 
       <motion.div className="home-body" variants={container} initial="hidden" animate="show">
         <motion.div className="hero" variants={item}>
-          <div className="eyebrow">OpenStreetMap transit simulator</div>
+          <div className="eyebrow">Transit simulator</div>
           <h1>
             Drive <span className="grad-text">any city.</span>
           </h1>
@@ -111,6 +115,10 @@ export function HomeScreen() {
         <motion.div variants={item} className="home-foot">
           <span>Map data © OpenStreetMap contributors</span>
           <span>Tiles: OpenFreeMap</span>
+          <span>Made by Srijon Karmakar</span>
+          <a href={FACEBOOK_URL} target="_blank" rel="noopener noreferrer">
+            Facebook
+          </a>
         </motion.div>
       </motion.div>
     </motion.div>

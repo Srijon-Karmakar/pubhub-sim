@@ -1,19 +1,27 @@
-import { LngLat, Map as MlMap, setWorkerUrl, type GeoJSONSource, type LayerSpecification } from 'maplibre-gl';
+import { addProtocol, LngLat, Map as MlMap, setWorkerUrl, type GeoJSONSource, type LayerSpecification } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Feature, FeatureCollection } from 'geojson';
 import type { CameraMode, RouteData, WeatherKind } from '../types';
 import { visibleOn } from '../lib/color';
 import { applyWeather, liftPalette, nightness, paletteForSun, type Palette } from '../lib/env/palette';
+import { LOW_END, MAP_DPR_CAP } from '../lib/device';
+import { flatTile } from '../lib/env/dem';
 import { angleDiff, clamp, lerp } from '../lib/geo';
 import type { Engine } from '../lib/sim/engine';
 import { SceneLayer } from './sceneLayer';
-import { buildLayers, buildStyle, skyFor } from './style';
+import { BUILDING_IDS, buildLayers, buildStyle, skyFor } from './style';
+import { ensureTextures } from './textures';
 
 const DEG = 180 / Math.PI;
 
 // MapLibre v6 resolves its worker relative to its own module, which bundlers relocate.
 setWorkerUrl(workerUrl);
+try {
+  addProtocol('flatdem', async (params, abort) => ({ data: await flatTile(params.url, abort.signal) }));
+} catch {
+  // already registered (hot reload)
+}
 
 interface CamSnap {
   lng: number;
@@ -62,16 +70,19 @@ class MapController {
       bearing: -20,
       maxPitch: 85,
       attributionControl: { compact: true },
-      canvasContextAttributes: { antialias: true },
+      canvasContextAttributes: { antialias: !LOW_END },
       fadeDuration: 150,
-      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      pixelRatio: Math.min(window.devicePixelRatio || 1, MAP_DPR_CAP),
     });
     } catch (e) {
       console.error(e);
       return false;
     }
     this.map = map;
+    // wall, road and ground textures are drawn in code and supplied on demand
+    map.on('styleimagemissing', () => ensureTextures(map));
     map.on('load', () => {
+      ensureTextures(map);
       map.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
       map.addLayer(this.scene);
       this.readyResolve();
@@ -180,8 +191,11 @@ class MapController {
   setQuality(q: 'high' | 'low') {
     const map = this.map;
     if (!map) return;
-    map.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2));
-    const apply = () => map.getLayer('building-3d') && map.setLayoutProperty('building-3d', 'visibility', q === 'low' ? 'none' : 'visible');
+    this.scene.quality = q;
+    map.setPixelRatio(q === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, MAP_DPR_CAP));
+    const apply = () => {
+      for (const id of BUILDING_IDS) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', q === 'low' ? 'none' : 'visible');
+    };
     if (map.isStyleLoaded()) apply();
     else map.once('load', apply);
   }
@@ -196,6 +210,7 @@ class MapController {
       this.map?.once('load', () => this.applyPalette());
       return;
     }
+    ensureTextures(map);
     for (const layer of buildLayers(this.palette, this.buildingOpacity) as (LayerSpecification & { paint?: Record<string, unknown> })[]) {
       if (!layer.paint || !map.getLayer(layer.id)) continue;
       for (const [k, v] of Object.entries(layer.paint)) {

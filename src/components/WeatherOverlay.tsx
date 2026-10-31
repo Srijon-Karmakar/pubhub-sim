@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { WeatherKind } from '../types';
+import { LOW_END } from '../lib/device';
 import { useHud } from '../store/hud';
 
 /** Screen-space rain / snow / lightning, streaks lean with vehicle speed. */
@@ -11,7 +12,7 @@ export function WeatherOverlay({ kind, hidden }: { kind: WeatherKind; hidden: bo
     const ctx = cv.getContext('2d');
     if (!ctx) return;
     let raf = 0;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const dpr = LOW_END ? 1 : Math.min(2, window.devicePixelRatio || 1);
     const resize = () => {
       cv.width = cv.clientWidth * dpr;
       cv.height = cv.clientHeight * dpr;
@@ -19,7 +20,7 @@ export function WeatherOverlay({ kind, hidden }: { kind: WeatherKind; hidden: bo
     resize();
     window.addEventListener('resize', resize);
     const snow = kind === 'snow';
-    const N = snow ? 160 : kind === 'storm' ? 320 : 200;
+    const N = Math.round((snow ? 160 : kind === 'storm' ? 320 : 200) * (LOW_END ? 0.5 : 1));
     const parts = Array.from({ length: N }, () => ({ x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7, w: Math.random() * Math.PI * 2 }));
     let last = performance.now();
     let flash = 0;

@@ -3,9 +3,14 @@ import { hexToGl, mixHex } from '../lib/color';
 import { EARTH_R } from '../lib/geo';
 import type { Engine } from '../lib/sim/engine';
 import { mulberry32, hashString } from '../lib/sim/passengers';
+import { LOW_END } from '../lib/device';
+import { useApp } from '../store/app';
+import { useHud } from '../store/hud';
 import { MeshBuilder, STRIDE, type C4, type V2 } from './mesh';
+import { Traffic, type RoadFeature, type TrafficCtx } from './traffic';
 
 const RAD = Math.PI / 180;
+const MAX_TREES = LOW_END ? 90 : 220;
 
 const VS = `#version 300 es
 precision highp float;
@@ -78,6 +83,29 @@ const C = {
 
 const SHIRTS = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#34495e', '#ecf0f1', '#e67e22', '#1abc9c', '#95a5a6', '#d35400', '#2c3e50', '#c0392b', '#ff7eb6', '#16a085', '#111827'].map((c) => hexToGl(c));
 const SKIN = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#a0522d'].map((c) => hexToGl(c));
+const TREE_CANOPY = ['#3f6b35', '#4c7a3f', '#355c2c', '#588140'].map((c) => hexToGl(c));
+const TREE_TRUNK = hexToGl('#5c4433');
+
+/** ray-cast point-in-polygon test on an ENU ring (closing edge included implicitly) */
+function pointInRing(p: V2, ring: V2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** regular n-gon ring centred at (cx, cy) */
+function ngon(cx: number, cy: number, r: number, n: number): V2[] {
+  const pts: V2[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  return pts;
+}
 
 class Frame {
   lat0 = 0;
@@ -125,6 +153,7 @@ export class SceneLayer implements CustomLayerInterface {
   sun: [number, number, number] = [0.4, -0.5, 0.75];
   xray = false;
   assists = true;
+  quality: 'high' | 'low' = 'high';
   driveSide: -1 | 1 = 1;
   /** cab view: the camera sits inside the front car */
   hideVehicle = false;
@@ -138,6 +167,9 @@ export class SceneLayer implements CustomLayerInterface {
   private stat!: GpuMesh;
   private dyn!: GpuMesh;
   private beam!: GpuMesh;
+  private trf!: GpuMesh;
+  private mbTrf = new MeshBuilder(16384);
+  private traffic = new Traffic();
   private mbStatic = new MeshBuilder(16384);
   private mbDyn = new MeshBuilder(8192);
   private mbBeam = new MeshBuilder(64);
@@ -160,6 +192,7 @@ export class SceneLayer implements CustomLayerInterface {
     this.persons = [];
     this.crowdKey = '';
     this.lastT = 0;
+    this.traffic.reset(engine ? String(engine.route.id) : '');
     this.map?.triggerRepaint();
   }
 
@@ -187,6 +220,7 @@ export class SceneLayer implements CustomLayerInterface {
     this.stat = mk();
     this.dyn = mk();
     this.beam = mk();
+    this.trf = mk();
   }
 
   onRemove() {
@@ -194,7 +228,7 @@ export class SceneLayer implements CustomLayerInterface {
     if (g && this.prog) {
       g.deleteProgram(this.prog);
       if (this.vao) g.deleteVertexArray(this.vao);
-      for (const m of [this.stat, this.dyn, this.beam]) g.deleteBuffer(m.buf);
+      for (const m of [this.stat, this.dyn, this.beam, this.trf]) g.deleteBuffer(m.buf);
     }
     this.map = null;
     this.gl = null;
@@ -485,7 +519,70 @@ export class SceneLayer implements CustomLayerInterface {
       }
     });
 
+    if (this.quality !== 'low') this.buildTrees(mb, f, tr.groundAt(center));
+
     this.upload(this.stat, mb);
+  }
+
+  /** scatters low-poly trees over nearby OSM wood/forest landcover polygons (already loaded for the base map) */
+  private buildTrees(mb: MeshBuilder, f: Frame, groundZ: number) {
+    const map = this.map;
+    if (!map || !map.getLayer('lc-wood')) return;
+    let feats: ReturnType<typeof map.queryRenderedFeatures>;
+    try {
+      feats = map.queryRenderedFeatures(undefined, { layers: ['lc-wood'] });
+    } catch {
+      return;
+    }
+    const reach = 260;
+    const spacing = 11;
+    const seen = new Set<string>();
+    let placed = 0;
+    for (const feat of feats) {
+      if (placed >= MAX_TREES) break;
+      const geom = feat.geometry;
+      const rings: number[][][] = geom.type === 'Polygon' ? [geom.coordinates[0]] : geom.type === 'MultiPolygon' ? geom.coordinates.map((c) => c[0]) : [];
+      for (const ring of rings) {
+        if (placed >= MAX_TREES || ring.length < 3) continue;
+        const poly: V2[] = ring.map((pt) => f.enu(pt[1], pt[0]));
+        let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+        for (const [x, y] of poly) {
+          if (x < minx) minx = x;
+          if (x > maxx) maxx = x;
+          if (y < miny) miny = y;
+          if (y > maxy) maxy = y;
+        }
+        if (minx > reach || maxx < -reach || miny > reach || maxy < -reach) continue;
+        const rnd = mulberry32(hashString(`tree:${Math.round(minx)}:${Math.round(miny)}:${Math.round(maxx)}:${Math.round(maxy)}`));
+        for (let gy = Math.floor(miny / spacing) * spacing; gy <= maxy && placed < MAX_TREES; gy += spacing) {
+          for (let gx = Math.floor(minx / spacing) * spacing; gx <= maxx && placed < MAX_TREES; gx += spacing) {
+            const jx = gx + (rnd() - 0.5) * spacing * 0.85;
+            const jy = gy + (rnd() - 0.5) * spacing * 0.85;
+            if (jx * jx + jy * jy > reach * reach) continue;
+            const key = `${Math.round(jx * 3)}:${Math.round(jy * 3)}`;
+            if (seen.has(key) || !pointInRing([jx, jy], poly)) continue;
+            seen.add(key);
+            this.addTree(mb, jx, jy, groundZ, rnd);
+            placed++;
+          }
+        }
+      }
+    }
+  }
+
+  private addTree(mb: MeshBuilder, x: number, y: number, z0: number, rnd: () => number) {
+    const scale = 0.75 + rnd() * 0.8;
+    const trunkH = 1.3 * scale;
+    const trunkTop = z0 + trunkH;
+    mb.prism(ngon(x, y, 0.16 * scale, 6), z0, trunkTop, TREE_TRUNK);
+    const canopy = TREE_CANOPY[Math.floor(rnd() * TREE_CANOPY.length)];
+    const canopyTop = TREE_CANOPY[Math.floor(rnd() * TREE_CANOPY.length)];
+    const r0 = 1.5 * scale;
+    const h1 = trunkTop + 2.1 * scale;
+    const r1 = 0.75 * scale;
+    const h2 = trunkTop + 3.6 * scale;
+    mb.prism(ngon(x, y, r0, 6), trunkTop - 0.15, h1, canopy, 0, canopyTop);
+    mb.prism(ngon(x, y, r1, 6), h1 - 0.35, h2, canopy, 0, canopyTop);
   }
 
   private carPoly(F: V2, R: V2, hw: number, noseF: number, noseR: number, k = 0.62): V2[] {
@@ -837,6 +934,56 @@ export class SceneLayer implements CustomLayerInterface {
     this.upload(this.beam, bm);
   }
 
+  /** ambient road and rail traffic around the route, fed by the roads the base map has loaded */
+  private buildTraffic(dt: number) {
+    const mb = this.mbTrf;
+    mb.reset();
+    const map = this.map;
+    const e = this.engine;
+    if (!map || !e || this.quality === 'low' || this.xray) {
+      this.upload(this.trf, mb);
+      return;
+    }
+    const tr = e.track;
+    const [la, lo] = tr.path.pointAt(e.s);
+    const query = (layers: string[], railOnly: boolean): RoadFeature[] => {
+      const ids = layers.filter((id) => map.getLayer(id));
+      if (!ids.length) return [];
+      const out: RoadFeature[] = [];
+      for (const ft of map.queryRenderedFeatures(undefined, { layers: ids })) {
+        const g = ft.geometry;
+        const lines = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+        const cls = String(ft.properties?.class ?? (railOnly ? 'rail' : 'minor'));
+        const oneway = Number(ft.properties?.oneway) || 0;
+        for (const coords of lines) out.push({ cls, oneway, coords: coords as [number, number][] });
+      }
+      return out;
+    };
+    const mode = e.route.mode;
+    const ctx: TrafficCtx = {
+      lat: la,
+      lon: lo,
+      s: e.s,
+      trainLength: e.length,
+      rail: e.profile.rail && mode !== 'tram',
+      pointAt: (s) => tr.path.pointAt(Math.max(0, Math.min(tr.length, s))),
+      roads: () => query(['motorway', 'major', 'minor', 'service'], false),
+      rails: () => query(['rail'], true),
+      weather: e.weather,
+      temp: useApp.getState().weather?.temp ?? NaN,
+      night: this.night,
+      driveSide: this.driveSide,
+      paused: useHud.getState().paused,
+      density: LOW_END ? 0.5 : 1,
+      groundZ: tr.groundAt(e.s),
+    };
+    this.traffic.update(ctx, dt);
+    const [wx, wy] = this.traffic.world(la, lo);
+    this.trf.frame.set(la, lo);
+    this.traffic.build(mb, ctx, [wx, wy]);
+    this.upload(this.trf, mb);
+  }
+
   private personBase(along: number): number {
     const e = this.engine!;
     const p = e.profile;
@@ -990,6 +1137,7 @@ export class SceneLayer implements CustomLayerInterface {
       this.buildStatic(e.s + 150);
     }
     this.buildDynamic(dt);
+    this.buildTraffic(dt);
 
     const main = args.defaultProjectionData.mainMatrix as unknown as ArrayLike<number>;
     g.bindVertexArray(this.vao);
@@ -1013,10 +1161,11 @@ export class SceneLayer implements CustomLayerInterface {
 
     this.draw(g, this.stat, main);
     this.draw(g, this.dyn, main);
+    this.draw(g, this.trf, main);
     // ghost pass: wherever buildings (e.g. OSM station halls) or the map's raw terrain mesh
     // hide the track or vehicle, it shows through as a translucent silhouette instead of
     // vanishing outright; visible parts are unchanged (the re-draw blends to the same colour)
-    if (!this.xray && (this.stat.count || this.dyn.count)) {
+    if (!LOW_END && !this.xray && (this.stat.count || this.dyn.count)) {
       g.clear(g.DEPTH_BUFFER_BIT);
       g.uniform1f(this.uni.u_alpha, 0.72);
       this.draw(g, this.stat, main);

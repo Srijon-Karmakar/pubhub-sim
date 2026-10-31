@@ -4490,3 +4490,245 @@ body {
     right: calc(var(--sar) + 160px);
   }
 }
+
+/* ---------------------------------------------------------------- centered home */
+.home-body {
+  margin: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-body > * {
+  width: 100%;
+}
+
+.hero p {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.popular .section-title {
+  justify-content: center;
+}
+
+.popular .hscroll {
+  justify-content: safe center;
+}
+
+.home-foot {
+  justify-content: center;
+  gap: 24px;
+}
+
+.app[data-screen='home'] .scrim-bottom {
+  height: 100%;
+  background: radial-gradient(ellipse 70% 60% at 50% 55%, color-mix(in oklab, var(--wash) 88%, transparent) 0%, color-mix(in oklab, var(--wash) 60%, transparent) 55%, transparent 100%);
+}
+
+@media (min-width: 900px) {
+  .app[data-screen='home'] .scrim-bottom {
+    background: radial-gradient(ellipse 50% 60% at 50% 55%, color-mix(in oklab, var(--wash) 88%, transparent) 0%, color-mix(in oklab, var(--wash) 55%, transparent) 60%, transparent 100%);
+  }
+}
+
+/* oversized hero heading */
+.home-body {
+  max-width: min(1100px, 100%);
+}
+
+.hero h1 {
+  font-size: clamp(64px, 17vw, 190px);
+  line-height: 0.88;
+  letter-spacing: -0.045em;
+  margin: 10px 0 20px;
+}
+
+.search-trigger,
+.popular {
+  max-width: 560px;
+}
+
+.hero p {
+  max-width: 520px;
+}
+
+/* hero heading: DRIVE large, ANY CITY smaller, no underline */
+.hero h1 {
+  font-size: clamp(52px, 12vw, 140px);
+}
+
+.hero h1 .grad-text {
+  font-size: 0.55em;
+  display: block;
+  margin-top: 0.08em;
+}
+
+.hero h1 .grad-text::after {
+  content: none;
+}
+
+/* procedural train-cab view behind the home screen */
+.home-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app[data-screen='home'] .scrim-bottom {
+  height: 100%;
+  background: radial-gradient(ellipse 60% 55% at 50% 55%, color-mix(in oklab, var(--wash) 70%, transparent) 0%, color-mix(in oklab, var(--wash) 40%, transparent) 60%, transparent 100%);
+}
+
+/* hero: one-line heading, bottom-centred and a little smaller */
+.home-body {
+  margin: auto auto 0;
+  max-width: min(760px, 100%);
+  padding-bottom: calc(var(--sab) + 22px);
+}
+
+.hero h1 {
+  font-size: clamp(34px, 7.2vw, 84px);
+  line-height: 1;
+  white-space: nowrap;
+  margin: 6px 0 10px;
+}
+
+.hero h1 .grad-text {
+  display: inline;
+  font-size: 1em;
+  margin: 0;
+}
+
+.hero p {
+  font-size: 13.5px;
+  line-height: 1.45;
+  max-width: 440px;
+  margin-bottom: 14px;
+}
+
+.hero .eyebrow {
+  font-size: 10.5px;
+}
+
+.search-trigger {
+  height: 50px;
+  font-size: 14.5px;
+  max-width: 460px;
+}
+
+.search-trigger .locate {
+  width: 38px;
+  height: 38px;
+}
+
+.popular {
+  margin-top: 10px;
+  max-width: 460px;
+}
+
+.city-chip {
+  height: 34px;
+  font-size: 12.5px;
+  padding: 0 11px 0 8px;
+}
+
+.home-foot {
+  margin-top: 10px;
+  font-size: 10.5px;
+}
+
+.app[data-screen='home'] .scrim-bottom {
+  background: radial-gradient(ellipse 60% 55% at 50% 88%, color-mix(in oklab, var(--wash) 78%, transparent) 0%, color-mix(in oklab, var(--wash) 45%, transparent) 60%, transparent 100%);
+}
+
+.hero p {
+  font-size: 12.5px;
+  max-width: 660px;
+}
+
+.home-credit {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+
+.home-credit a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.home-credit a:hover {
+  text-decoration: underline;
+}
+
+/* credits on a single line */
+.home-foot {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 16px;
+}
+
+.home-foot a {
+  color: #1877f2;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.home-foot a:hover {
+  text-decoration: underline;
+}
+
+.home-credit {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .home-foot {
+    flex-wrap: wrap;
+    white-space: normal;
+    justify-content: center;
+    text-align: center;
+    gap: 3px 12px;
+    font-size: 10px;
+  }
+}
+
+/* gameplay vignette: much lighter so the map stays clear at the edges */
+.tunnel-vignette {
+  background: radial-gradient(110% 90% at 50% 50%, transparent 55%, rgba(2, 4, 10, 0.22) 100%);
+}
+
+.vignette {
+  background: radial-gradient(130% 100% at 50% 45%, transparent 65%, rgba(0, 0, 0, 0.1) 100%);
+}
+
+/* vignettes removed entirely */
+.tunnel-vignette,
+.vignette {
+  display: none;
+}
+
+/* phones and small devices: drop the expensive blurs behind HUD panels, use solid-ish glass instead */
+html.lite *,
+html.lite *::before,
+html.lite *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.lite .glass {
+  background: var(--glass-strong);
+}
+
+html.lite .overlay-backdrop {
+  background: rgba(3, 6, 14, 0.62);
+}

@@ -1,7 +1,8 @@
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from 'maplibre-gl';
 import type { Palette } from '../lib/env/palette';
-import { mixHex } from '../lib/color';
-import { DEM_URL, DEM_ZOOM } from '../lib/env/dem';
+import { luminance, mixHex } from '../lib/color';
+import { LOW_END } from '../lib/device';
+import { DEM_FLAT_URL, DEM_ZOOM } from '../lib/env/dem';
 
 const SRC = 'omt';
 const NAME: ExpressionSpecification = ['coalesce', ['get', 'name:en'], ['get', 'name:latin'], ['get', 'name']];
@@ -15,6 +16,18 @@ const zw = (pairs: [number, number][]): ExpressionSpecification =>
 const cls = (...c: string[]): ExpressionSpecification => ['in', ['get', 'class'], ['literal', c]];
 const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel'];
 const isTunnel: ExpressionSpecification = ['==', ['get', 'brunnel'], 'tunnel'];
+
+export const BUILDING_IDS = ['building-3d', 'building-3d-1', 'building-3d-2', 'building-3d-3', 'building-3d-4'];
+
+// weathered plaster tones seen on real city blocks: ochre, faded blue, dusty rose, sage, concrete grey
+const WALL_TINTS = ['#d6a35e', '#8fb0c8', '#cf9a96', '#a6bb98', '#b9b6ae'];
+
+function wallTone(p: Palette, k: number) {
+  const base = mixHex(p.building, p.buildingTop, 0.45);
+  // scale the tint with the palette's brightness so night walls stay dark
+  const lit = Math.min(1, luminance(p.building) / 0.72);
+  return mixHex(base, mixHex('#000000', WALL_TINTS[k], lit), 0.34);
+}
 
 export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecification[] {
   const road = (
@@ -35,6 +48,30 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
     layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': color, 'line-width': zw(width), ...extra },
   });
+
+  // textured twins sit on top of the flat colour layers once zoomed in, where the detail is legible
+  const TX_ZOOM = 15.5;
+  const roadTx = (id: string, classes: string[], pattern: string, width: [number, number][], minzoom: number): LayerSpecification => ({
+    id,
+    type: 'line',
+    source: SRC,
+    'source-layer': 'transportation',
+    minzoom: Math.max(minzoom, TX_ZOOM),
+    filter: ['all', cls(...classes), notTunnel],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-pattern': pattern, 'line-width': zw(width) },
+  });
+  const fillTx = (id: string, layer: string, filter: ExpressionSpecification | undefined, pattern: string, opacity: number): LayerSpecification => ({
+    id,
+    type: 'fill',
+    source: SRC,
+    'source-layer': layer,
+    minzoom: TX_ZOOM - 1,
+    ...(filter ? { filter } : {}),
+    paint: { 'fill-pattern': pattern, 'fill-opacity': opacity },
+  });
+  // night images are pre-darkened copies; swapping names is cheaper than rewriting an image
+  const sfx = luminance(p.bg) < 0.12 ? '-n' : '';
 
   return [
     { id: 'bg', type: 'background', paint: { 'background-color': p.bg } },
@@ -93,6 +130,14 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
       'source-layer': 'park',
       paint: { 'fill-color': p.park, 'fill-opacity': 0.85 },
     },
+    ...(LOW_END
+      ? []
+      : [
+        fillTx('lc-wood-tx', 'landcover', cls('wood', 'forest'), `tx-wood${sfx}`, 0.8),
+        fillTx('lc-grass-tx', 'landcover', cls('grass', 'wetland', 'farmland'), `tx-grass${sfx}`, 0.7),
+        fillTx('lu-green-tx', 'landuse', cls('cemetery', 'pitch', 'stadium', 'playground', 'park', 'golf_course'), `tx-park${sfx}`, 0.8),
+        fillTx('park-tx', 'park', undefined, `tx-park${sfx}`, 0.85),
+      ]),
     {
       // relief shading from the terrain model: valleys and ridges read even from above
       id: 'hillshade',
@@ -153,6 +198,29 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
     road('minor', ['minor', 'tertiary'], p.roadMinor, [[11, 0.4], [14, 2], [16, 6], [19, 22]], notTunnel, 11),
     road('major', ['primary', 'secondary'], p.roadMajor, [[8, 0.5], [12, 2], [16, 10.5], [19, 32]], notTunnel, 8),
     road('motorway', ['motorway', 'trunk'], p.motorway, [[6, 0.5], [10, 2], [16, 13], [19, 37]], notTunnel, 6),
+    ...(LOW_END
+      ? []
+      : [
+        roadTx('service-tx', ['service'], `rd-service${sfx}`, [[13, 0.4], [16, 2.8], [19, 10]], 13),
+        roadTx('minor-tx', ['minor', 'tertiary'], `rd-asphalt${sfx}`, [[11, 0.4], [14, 2], [16, 6], [19, 22]], 11),
+        roadTx('major-tx', ['primary', 'secondary'], `rd-asphalt${sfx}`, [[8, 0.5], [12, 2], [16, 10.5], [19, 32]], 8),
+        roadTx('motorway-tx', ['motorway', 'trunk'], `rd-concrete${sfx}`, [[6, 0.5], [10, 2], [16, 13], [19, 37]], 6),
+        {
+          // worn lane dashes down the middle of the bigger roads
+          id: 'road-centre',
+          type: 'line',
+          source: SRC,
+          'source-layer': 'transportation',
+          minzoom: 16,
+          filter: ['all', cls('primary', 'secondary', 'trunk', 'motorway'), notTunnel],
+          paint: {
+            'line-color': '#f3f1e4',
+            'line-opacity': 0.7,
+            'line-width': zw([[16, 0.35], [19, 1.3]]),
+            'line-dasharray': [4, 5],
+          },
+        },
+      ]),
     road('rail', ['rail', 'transit'], p.rail, [[10, 0.5], [14, 1.2], [18, 3]], notTunnel, 10, { 'line-dasharray': [3, 2] }),
     {
       id: 'building',
@@ -165,22 +233,25 @@ export function buildLayers(p: Palette, buildingOpacity = 0.94): LayerSpecificat
         'fill-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 14, 0.9],
       },
     },
-    {
-      id: 'building-3d',
-      type: 'fill-extrusion',
-      source: SRC,
-      'source-layer': 'building',
-      minzoom: 14,
-      filter: ['!=', ['get', 'hide_3d'], true],
-      paint: {
-        // a constant colour updates instantly on theme changes; data-driven colours keep stale tiles
-        'fill-extrusion-color': mixHex(p.building, p.buildingTop, 0.45),
-        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, ['coalesce', ['get', 'render_height'], 6]],
-        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-        'fill-extrusion-opacity': buildingOpacity,
-        'fill-extrusion-vertical-gradient': true,
-      },
-    },
+    ...BUILDING_IDS.map(
+      (id, k): LayerSpecification => ({
+        id,
+        type: 'fill-extrusion',
+        source: SRC,
+        'source-layer': 'building',
+        minzoom: 14,
+        // five wall tones, split by height so neighbouring blocks differ like painted real streets
+        filter: ['all', ['!=', ['get', 'hide_3d'], true], ['==', ['%', ['round', ['coalesce', ['get', 'render_height'], 6]], BUILDING_IDS.length], k]],
+        paint: {
+          // constant colours per layer update instantly on theme changes
+          'fill-extrusion-color': wallTone(p, k),
+          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14, 0, 15, ['coalesce', ['get', 'render_height'], 6]],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+          'fill-extrusion-opacity': buildingOpacity,
+          'fill-extrusion-vertical-gradient': true,
+        },
+      }),
+    ),
     {
       id: 'boundary',
       type: 'line',
@@ -265,8 +336,8 @@ export function buildStyle(p: Palette): StyleSpecification {
           '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
       },
       // terrain model (3D ground) and a separate copy for hillshading, as MapLibre recommends
-      dem: { type: 'raster-dem', tiles: [DEM_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium', attribution: 'Terrain: Mapzen / AWS Terrain Tiles' },
-      'dem-hs': { type: 'raster-dem', tiles: [DEM_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium' },
+      dem: { type: 'raster-dem', tiles: [DEM_FLAT_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium', attribution: 'Terrain: Mapzen / AWS Terrain Tiles' },
+      'dem-hs': { type: 'raster-dem', tiles: [DEM_FLAT_URL], tileSize: 256, maxzoom: DEM_ZOOM, encoding: 'terrarium' },
     },
     sky: skyFor(p),
     light: { anchor: 'map', color: p.light, intensity: p.lightIntensity, position: [1.4, 210, 40] },

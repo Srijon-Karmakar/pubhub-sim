@@ -4,8 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './styles/global.css';
+import { LOW_END } from './lib/device';
 
 registerSW({ immediate: true });
+
+if (LOW_END) document.documentElement.classList.add('lite');
 
 if (import.meta.env.DEV) {
   void Promise.all([import('./game/actions'), import('./game/runner'), import('./store/app'), import('./store/hud'), import('./map/mapController')]).then(([actions, r, app, hud, mc]) => {

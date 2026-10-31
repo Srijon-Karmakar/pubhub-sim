@@ -1,3 +1,4 @@
+import { VERY_LOW_END } from '../lib/device';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CameraMode } from '../types';
@@ -33,7 +34,7 @@ export const useSettings = create<Settings>()(
       haptics: true,
       autoDoors: false,
       assists: true,
-      quality: 'high',
+      quality: VERY_LOW_END ? 'low' : 'high',
       terrain: true,
       camera: 'chase',
       headingUp: true,
