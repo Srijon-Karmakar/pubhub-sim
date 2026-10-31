@@ -4732,3 +4732,8 @@ html.lite .glass {
 html.lite .overlay-backdrop {
   background: rgba(3, 6, 14, 0.62);
 }
+
+/* cab view: no dark window-frame shadows around the edges */
+.cab-frame {
+  display: none;
+}

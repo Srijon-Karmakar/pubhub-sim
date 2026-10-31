@@ -448,6 +448,7 @@ export class SceneLayer implements CustomLayerInterface {
         }
       }
     }
+    if (p.rail && mode !== 'monorail') this.buildNeighbourTracks(mb, f, s0, s1, center, e.route.infra?.tracks);
     const nearRealPlatform = (q: V2) =>
       infraPlatforms.some((poly) => poly.some((v, k) => {
         const w = poly[(k + 1) % poly.length];
@@ -522,6 +523,117 @@ export class SceneLayer implements CustomLayerInterface {
     if (this.quality !== 'low') this.buildTrees(mb, f, tr.groundAt(center));
 
     this.upload(this.stat, mb);
+  }
+
+  /**
+   * Every other railway the base map shows beside the route (double and multi-track lines, junction legs),
+   * built with the same ballast, rails, sleepers and viaduct deck as the player's own track.
+   */
+  private buildNeighbourTracks(mb: MeshBuilder, f: Frame, s0: number, s1: number, center: number, infraTracks?: [number, number][][]) {
+    const map = this.map;
+    const e = this.engine;
+    if (!map || !e || !map.getLayer('rail')) return;
+    const tr = e.track;
+    let feats: ReturnType<typeof map.queryRenderedFeatures>;
+    try {
+      feats = map.queryRenderedFeatures(undefined, { layers: ['rail'] });
+    } catch {
+      return;
+    }
+    // the player's own line, sampled once, to tell "this is my track" from "this is another one"
+    const own: { x: number; y: number; z: number; g: number; s: number }[] = [];
+    for (let s = s0; s <= s1; s += 8) {
+      const [la, lo] = tr.path.pointAt(Math.max(0, Math.min(tr.length, s)));
+      const [x, y] = f.enu(la, lo);
+      own.push({ x, y, z: tr.elevationAt(s), g: tr.groundAt(s), s });
+    }
+    if (!own.length) return;
+    // perpendicular distance to the player's line (not to the nearest sample), with height interpolated there
+    const nearest = (x: number, y: number) => {
+      let best = own[0];
+      let bd = Infinity;
+      for (let i = 0; i + 1 < own.length; i++) {
+        const A = own[i];
+        const B = own[i + 1];
+        const dx = B.x - A.x;
+        const dy = B.y - A.y;
+        const l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((x - A.x) * dx + (y - A.y) * dy) / l2));
+        const d = Math.hypot(A.x + dx * t - x, A.y + dy * t - y);
+        if (d < bd) {
+          bd = d;
+          best = { x, y, z: A.z + (B.z - A.z) * t, g: A.g + (B.g - A.g) * t, s: A.s + (B.s - A.s) * t };
+        }
+      }
+      return { q: best, d: bd };
+    };
+    const known: [V2, V2][] = [];
+    for (const tk of infraTracks ?? []) {
+      for (let k = 1; k < tk.length; k++) known.push([f.enu(tk[k - 1][0], tk[k - 1][1]), f.enu(tk[k][0], tk[k][1])]);
+    }
+    const onKnown = (m: V2) =>
+      known.some(([a, b]) => {
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((m[0] - a[0]) * dx + (m[1] - a[1]) * dy) / l2));
+        return Math.hypot(a[0] + dx * t - m[0], a[1] + dy * t - m[1]) < 2.6;
+      });
+    const seen = new Set<string>();
+    const ctr = own[Math.floor(own.length / 2)];
+    let segs = 0;
+    for (const ft of feats) {
+      const g = ft.geometry;
+      const lines = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+      for (const line of lines) {
+        for (let k = 1; k < line.length; k++) {
+          if (segs > 900) return;
+          const a = f.enu(line[k - 1][1], line[k - 1][0]);
+          const b = f.enu(line[k][1], line[k][0]);
+          const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (L2 < 0.5 || L2 > 400) continue;
+          const mid: V2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+          if (Math.hypot(mid[0] - ctr.x, mid[1] - ctr.y) > 700) continue;
+          const key = `${Math.round(a[0])},${Math.round(a[1])},${Math.round(b[0])},${Math.round(b[1])}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const { q, d } = nearest(mid[0], mid[1]);
+          if (d < 3.4 || d > 70) continue; // that's the player's own track, or nothing to do with it
+          if (onKnown(mid)) continue;
+          segs++;
+          const z = d < 30 ? q.z : q.g;
+          const ux = (b[0] - a[0]) / L2;
+          const uy = (b[1] - a[1]) / L2;
+          const off = (o: number, zz: number): [V2, V2, number] => [[a[0] - uy * o, a[1] + ux * o], [b[0] - uy * o, b[1] + ux * o], zz];
+          const strip = (o0: number, o1: number, zz: number, col: C4) => {
+            const [a0, b0] = off(o0, zz);
+            const [a1, b1] = off(o1, zz);
+            mb.flat([a0, b0, b1, a1], zz, col);
+          };
+          if (d < 30 && z - q.g > 0.6) mb.segBox(b, a, 2.4, z - 1.15, z, C.concrete);
+          strip(-1.65, 1.65, z + 0.06, C.ballast);
+          strip(-0.76, -0.68, z + 0.2, C.rail);
+          strip(0.68, 0.76, z + 0.2, C.rail);
+          // sleepers only close to the player, where they can be seen
+          if (Math.abs(q.s - center) < 190) {
+            for (let t = 0.3; t < L2 - 0.2; t += 0.65) {
+              const cx = a[0] + ux * t;
+              const cy = a[1] + uy * t;
+              mb.flat(
+                [
+                  [cx - uy * 1.25 - ux * 0.12, cy + ux * 1.25 - uy * 0.12],
+                  [cx - uy * 1.25 + ux * 0.12, cy + ux * 1.25 + uy * 0.12],
+                  [cx + uy * 1.25 + ux * 0.12, cy - ux * 1.25 + uy * 0.12],
+                  [cx + uy * 1.25 - ux * 0.12, cy - ux * 1.25 - uy * 0.12],
+                ],
+                z + 0.13,
+                C.sleeper,
+              );
+            }
+          }
+        }
+      }
+    }
   }
 
   /** scatters low-poly trees over nearby OSM wood/forest landcover polygons (already loaded for the base map) */
